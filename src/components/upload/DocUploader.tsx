@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useProjects } from "@/hooks/useIndexedDB";
 import * as db from "@/lib/db";
+import { normalizeRoleName } from "@/lib/role-name-utils";
 import type { Segment, RawSegment, Role, Chapter } from "@/lib/types";
 
 interface DocUploaderProps {
@@ -116,7 +117,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
           const roleAssignment = roleData.segmentRoles.find(
             (sr: { segmentIndex: number }) => sr.segmentIndex === raw.index
           );
-          const roleName = roleAssignment?.roleName || "旁白";
+          const roleName = normalizeRoleName(roleAssignment?.roleName || "旁白");
           const role = newRoles.find((r) => r.name === roleName);
           return {
             id: crypto.randomUUID(),

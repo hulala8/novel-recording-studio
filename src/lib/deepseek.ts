@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { IdentifyRolesResponse, RawSegment } from "./types";
+import { normalizeRoleName } from "./role-name-utils";
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 const CHUNK_SIZE = 25; // Process 25 segments per API call
@@ -57,7 +58,9 @@ function buildSystemPrompt(): string {
 - **type="narration" 的段落（引号外文字）永远是"旁白"**
 - 识别旁白段中的"说、道、问、答、喊、叫、嚷、骂、吼、嘀咕、嘟囔、呢喃、惊叹、自言自语、开口、回话、插嘴、补充"等说话标记，找到说话人名字
 - 同一个人物可能用不同称呼（如"张三"、"小张"、"张总"），尽量统一为最常用的名字
-- 角色名取原文中的名称，不要捏造角色
+- 角色名必须是原文中明确出现的人名、称谓、身份称呼或稳定群体称呼，例如"张三"、"王婶"、"李总"、"母亲"、"村长"、"众人"
+- **禁止**把代词、句子碎片、动作短语、情绪短语、疑问短语、动宾结构当角色名
+- 以下都不是角色名，必须标注为"旁白"或使用上下文中的真实人物名： "你"、"我"、"他"、"有人"、"听"、"你们这样"、"你不知道"、"咱都不知"、"也能给娃"、"把人"、"跟勇搭腔"、"急忙掩嘴"、"对胡彩香"
 - 如果实在无法确定引号内容的说话人，标注为"旁白"（用户可在审核阶段修改）`;
 
 }
@@ -82,8 +85,11 @@ function buildUserPrompt(
 ${segments.map((s) => `[${s.index}] type=${s.type} | ${s.text}`).join("\n\n")}
 
 要求：
-1. 从文本中识别所有角色名（包括"旁白"），为每个角色分配颜色：旁白=#6B7280，第一个对话角色=#EF4444，第二个=#3B82F6，第三个=#10B981，第四个=#F59E0B，第五个=#8B5CF6，第六个=#EC4899
-2. 为每个段落标注它属于哪个角色 — narration段落必须标注为"旁白"
+1. 只输出真正的说话角色名（包括"旁白"），不要输出没有对白归属的名字
+2. 角色名必须是人名/称谓/身份称呼/稳定群体称呼，不能是代词、动词、半句话、动作短语或情绪短语
+3. 如果只能判断成"你/我/他/有人/某人"或类似短语，但无法对应真实人物名，请标注为"旁白"
+4. 为每个角色分配颜色：旁白=#6B7280，第一个对话角色=#EF4444，第二个=#3B82F6，第三个=#10B981，第四个=#F59E0B，第五个=#8B5CF6，第六个=#EC4899
+5. 为每个段落标注它属于哪个角色 — narration段落必须标注为"旁白"
 
 只返回纯JSON（不要用\`\`\`json包裹），格式如下：
 {"roles":[{"name":"旁白","color":"#6B7280"},{"name":"张三","color":"#EF4444"}],"segmentRoles":[{"segmentIndex":0,"roleName":"旁白"},{"segmentIndex":1,"roleName":"张三"}]}`;
@@ -214,9 +220,12 @@ export function pruneUnusedDialogueRoles(
 ): IdentifyRolesResponse {
   const forcedSegmentRoles = forceNarrationToNarrator(segments, segmentRoles);
   const segmentTypeByIndex = new Map(segments.map((s) => [s.index, s.type]));
-  const usedDialogueRoles = new Set<string>();
+  const cleanedSegmentRoles = forcedSegmentRoles.map((assignment) => {
+    return { ...assignment, roleName: normalizeRoleName(assignment.roleName) };
+  });
 
-  for (const assignment of forcedSegmentRoles) {
+  const usedDialogueRoles = new Set<string>();
+  for (const assignment of cleanedSegmentRoles) {
     if (
       assignment.roleName &&
       assignment.roleName !== "旁白" &&
@@ -243,7 +252,7 @@ export function pruneUnusedDialogueRoles(
   return {
     success: true,
     roles: cleanedRoles,
-    segmentRoles: forcedSegmentRoles,
+    segmentRoles: cleanedSegmentRoles,
   };
 }
 

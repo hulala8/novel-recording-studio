@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { RawSegment } from "./types";
+import { normalizeRoleName } from "./role-name-utils";
 
 // Chinese quote pairs: left → right
 const LEFT_QUOTES = new Set([
@@ -282,6 +283,8 @@ export function ruleBasedRoleAssign(
     if (!roleName) {
       roleName = "旁白"; // user can fix in review
     }
+
+    roleName = normalizeRoleName(roleName);
 
     lastSpeaker = roleName;
 
