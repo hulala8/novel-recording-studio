@@ -510,21 +510,19 @@ export default function StudioPage() {
     await handlePlaySegment();
   }, [handlePlaySegment, player, recorder.audioBlob, recordedBlob]);
 
-  // ---- Preview recording (just recorded, not saved yet) ----
-  const handlePreviewRecording = useCallback(async () => {
-    if (!recorder.audioBlob) return;
-    setPlaybackScope("segment");
-    await player.loadAudio(recorder.audioBlob);
-    player.play();
-  }, [recorder.audioBlob, player]);
+  const handleToggleCurrentPlayback = useCallback(async () => {
+    if (player.status === "playing") {
+      player.pause();
+      return;
+    }
 
-  // Play saved recording (for teleprompter waveform)
-  const handlePlaySaved = useCallback(async () => {
-    if (!recordedBlob) return;
-    setPlaybackScope("segment");
-    await player.loadAudio(recordedBlob);
-    player.play();
-  }, [recordedBlob, player]);
+    if (player.status === "paused" && playbackScope === "segment") {
+      player.play();
+      return;
+    }
+
+    await handlePlayCurrent();
+  }, [handlePlayCurrent, playbackScope, player]);
 
   // ---- Seek (waveform click-to-position) ----
   const handleSeek = useCallback(
@@ -642,11 +640,7 @@ export default function StudioPage() {
       e: () => setShowExport((v) => !v),
       // ---- Teleprompter shortcuts ----
       p: () => {
-        if (player.status === "playing") {
-          player.pause();
-        } else {
-          handlePlayCurrent();
-        }
+        void handleToggleCurrentPlayback();
       },
       s: () => {
         if (activeSegment && activeSegment.text.length > 60) {
@@ -801,15 +795,15 @@ export default function StudioPage() {
               onSave={handleSaveRecording}
               onExit={() => setViewMode("normal")}
               playerCurrentTime={player.currentTime}
-              isPlaying={player.status === "playing"}
-              onPreview={handlePreviewRecording}
+              playbackStatus={player.status}
+              onPreview={handleToggleCurrentPlayback}
               onPause={() => player.pause()}
               onCut={handleCut}
               onTrim={handleTrim}
               onSplit={handleSplitSegment}
               recordedBlob={recordedBlob}
               recordedDuration={recordedDuration}
-              onPlaySaved={handlePlaySaved}
+              onPlaySaved={handleToggleCurrentPlayback}
               onSeek={handleSeek}
               roleFilter={roleFilter}
               onRoleFilterChange={handleRoleFilterChange}
@@ -884,11 +878,15 @@ export default function StudioPage() {
               {/* Quick actions */}
               <div className="mt-2 flex gap-2">
                 <button
-                  onClick={handlePreviewRecording}
+                  onClick={handleToggleCurrentPlayback}
                   className="flex-1 py-1.5 text-xs bg-zinc-700 hover:bg-zinc-600 rounded flex items-center justify-center gap-1 transition-colors"
                   title="试听/暂停 (P)"
                 >
-                  {player.status === "playing" ? "⏸ 暂停试听" : "▶ 试听录制内容"}
+                  {player.status === "playing"
+                    ? "⏸ 暂停试听"
+                    : player.status === "paused" && playbackScope === "segment"
+                    ? "▶ 继续试听"
+                    : "▶ 试听录制内容"}
                   <kbd className="text-[9px] opacity-50">P</kbd>
                 </button>
               </div>

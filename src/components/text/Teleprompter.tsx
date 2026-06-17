@@ -39,7 +39,7 @@ interface TeleprompterProps {
   onExit: () => void;
   // Waveform/playback integration
   playerCurrentTime?: number;
-  isPlaying?: boolean;
+  playbackStatus?: "idle" | "playing" | "paused";
   onPreview?: () => void;
   onPause?: () => void;
   onCut?: (start: number, end: number) => void;
@@ -73,7 +73,7 @@ export default function Teleprompter({
   onSave,
   onExit,
   playerCurrentTime = 0,
-  isPlaying = false,
+  playbackStatus = "idle",
   onPreview,
   onPause,
   onCut,
@@ -341,22 +341,30 @@ export default function Teleprompter({
               {/* Play saved recording */}
               {recordedBlob && onPlaySaved && recorder.status !== "stopped" && (
                 <button
-                  onClick={isPlaying ? onPause : onPlaySaved}
+                  onClick={playbackStatus === "playing" ? onPause : onPlaySaved}
                   className="px-3 py-1 text-[11px] bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
                   title="试听/暂停 (P)"
                 >
-                  {isPlaying ? "⏸ 暂停" : "▶ 试听"}
+                  {playbackStatus === "playing"
+                    ? "⏸ 暂停"
+                    : playbackStatus === "paused"
+                    ? "▶ 继续"
+                    : "▶ 试听"}
                   <kbd className="ml-1 text-[8px] opacity-60">P</kbd>
                 </button>
               )}
               {/* Play new recording */}
               {recorder.status === "stopped" && recorder.audioBlob && onPreview && (
                 <button
-                  onClick={isPlaying ? onPause : onPreview}
+                  onClick={playbackStatus === "playing" ? onPause : onPreview}
                   className="px-3 py-1 text-[11px] bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
                   title="试听/暂停 (P)"
                 >
-                  {isPlaying ? "⏸ 暂停试听" : "▶ 试听"}
+                  {playbackStatus === "playing"
+                    ? "⏸ 暂停试听"
+                    : playbackStatus === "paused"
+                    ? "▶ 继续试听"
+                    : "▶ 试听"}
                   <kbd className="ml-1 text-[8px] opacity-60">P</kbd>
                 </button>
               )}
