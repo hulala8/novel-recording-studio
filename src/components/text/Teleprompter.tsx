@@ -32,14 +32,6 @@ interface RecorderState {
   }) => Promise<void>;
 }
 
-const AVAILABLE_VOICES = [
-  { code: "x_qingshan", label: "陕西话-青山" },
-  { code: "x_xiaoliang", label: "湖南话-小亮" },
-  { code: "xiaoyan", label: "普通话-小燕" },
-  { code: "xiaofeng", label: "普通话-小峰" },
-  { code: "x_xiaobao", label: "普通话-许小宝" },
-];
-
 interface TeleprompterProps {
   segments: Segment[];
   roles: Role[];
@@ -57,10 +49,6 @@ interface TeleprompterProps {
   onCut?: (start: number, end: number) => void;
   onTrim?: (start: number, end: number) => void;
   onSplit?: () => void;
-  onTts?: () => void;
-  ttsLoading?: boolean;
-  ttsVoice?: string;
-  onTtsVoiceChange?: (voice: string) => void;
   silenceSettings?: {
     silenceThreshold: number;
     minSilenceDuration: number;
@@ -98,10 +86,6 @@ export default function Teleprompter({
   onCut,
   onTrim,
   onSplit,
-  onTts,
-  ttsLoading = false,
-  ttsVoice = "x_qingshan",
-  onTtsVoiceChange,
   silenceSettings,
   recordedBlob,
   recordedDuration = 0,
@@ -121,7 +105,6 @@ export default function Teleprompter({
     containerRef,
     startAutoScroll,
     stopAutoScroll,
-    toggleAutoScroll,
     setScrollSpeed,
     setFontSize,
     scrollToSegment,
@@ -235,22 +218,6 @@ export default function Teleprompter({
           <span className="text-[9px] text-yellow-400 font-medium">
             仅 {roles.find(r => r.id === roleFilter)?.name || ""}
           </span>
-        )}
-
-        {/* Voice selector */}
-        {onTtsVoiceChange && (
-          <select
-            value={ttsVoice}
-            onChange={(e) => onTtsVoiceChange(e.target.value)}
-            className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-300"
-            title="AI 配音音色"
-          >
-            {AVAILABLE_VOICES.map((v) => (
-              <option key={v.code} value={v.code}>
-                {v.label}
-              </option>
-            ))}
-          </select>
         )}
 
         <div className="flex-1" />
@@ -404,17 +371,6 @@ export default function Teleprompter({
               拆分 <kbd className="text-[7px] opacity-60">S</kbd>
             </button>
           )}
-          {onTts && (
-            <button
-              onClick={onTts}
-              disabled={ttsLoading}
-              className="px-1.5 py-0.5 text-[9px] bg-purple-600/30 hover:bg-purple-600/50 disabled:opacity-40 text-purple-300 rounded border border-purple-500/30 shrink-0"
-              title="AI 语音合成配音 (D)"
-            >
-              {ttsLoading ? "⏳" : "AI配音"}
-              <kbd className="ml-0.5 text-[7px] opacity-60">D</kbd>
-            </button>
-          )}
         </div>
 
         {/* Timer */}
@@ -533,7 +489,7 @@ export default function Teleprompter({
 
         {/* Status + shortcut ref */}
         <span className="text-[10px] text-zinc-600 shrink-0">
-          {recorder.status === "idle" && "Space 开始 · P 试听 · D AI配音 · A 滚动"}
+          {recorder.status === "idle" && "Space 开始 · P 试听 · A 滚动"}
           {recorder.status === "recording" && "● 录制中 · Space 停止"}
           {recorder.status === "paused" && "⏸ 已暂停 · Space 继续"}
           {recorder.status === "stopped" && "Enter 保存 · P 试听 · B 去空白 · ^R 重录"}

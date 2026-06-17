@@ -152,7 +152,6 @@ export default function RecordControls({
         <span>Ctrl+R 重录</span>
         <span>P 试听</span>
         <span>B 去空白</span>
-        <span>D AI配音</span>
         <span>⇧P 全部</span>
       </div>
     </div>

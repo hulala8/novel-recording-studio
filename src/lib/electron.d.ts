@@ -10,7 +10,6 @@ interface ElectronAPI {
 
 interface EnvStatus {
   deepseekConfigured: boolean;
-  iflytekConfigured: boolean;
   configPath: string;
   configDirExists: boolean;
   configFileExists: boolean;

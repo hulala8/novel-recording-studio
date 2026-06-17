@@ -49,8 +49,6 @@ export default function StudioPage() {
   });
   const [autoTrimStart, setAutoTrimStart] = useState(false); // 自动切除开头噪音
   const [autoTrimDuration] = useState(0.5); // 切除秒数
-  const [ttsLoading, setTtsLoading] = useState(false);
-  const [ttsVoice, setTtsVoice] = useState("x_qingshan"); // 默认陕西话
   const [roleFilter, setRoleFilter] = useState<string | null>(null); // null=全部角色
 
   const project = projects.find((p) => p.id === projectId);
@@ -529,33 +527,6 @@ export default function StudioPage() {
     }
   }, [projectId, project?.name]);
 
-  // ---- TTS (AI dubbing) ----
-  const handleTts = useCallback(
-    async (text: string, _roleId: string) => {
-      setTtsLoading(true);
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: ttsVoice }),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "TTS failed");
-        }
-        const wavBlob = await res.blob();
-        const duration = await (await import("@/lib/audio-utils")).getAudioDuration(wavBlob);
-        recorder.replaceBlob(wavBlob, duration);
-      } catch (err) {
-        console.error("TTS error:", err);
-        alert(`AI 配音失败：${err instanceof Error ? err.message : "未知错误"}`);
-      } finally {
-        setTtsLoading(false);
-      }
-    },
-    [ttsVoice, recorder]
-  );
-
   // ---- Direct Enter handler (bypasses shortcut system for reliability) ----
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -629,11 +600,6 @@ export default function StudioPage() {
       s: () => {
         if (activeSegment && activeSegment.text.length > 60) {
           handleSplitSegment();
-        }
-      },
-      d: () => {
-        if (activeSegment && !ttsLoading) {
-          handleTts(activeSegment.text, activeSegment.roleId);
         }
       },
       a: () => {
@@ -802,14 +768,6 @@ export default function StudioPage() {
               onCut={handleCut}
               onTrim={handleTrim}
               onSplit={handleSplitSegment}
-              onTts={
-                activeSegment
-                  ? () => handleTts(activeSegment.text, activeSegment.roleId)
-                  : undefined
-              }
-              ttsLoading={ttsLoading}
-              ttsVoice={ttsVoice}
-              onTtsVoiceChange={setTtsVoice}
               silenceSettings={silenceSettings}
               recordedBlob={recordedBlob}
               recordedDuration={recordedDuration}
@@ -854,27 +812,7 @@ export default function StudioPage() {
             roles={roles}
             recorder={recorder}
             onSplit={handleSplitSegment}
-            onTts={handleTts}
-            ttsLoading={ttsLoading}
           />
-
-          {/* Voice selector for AI dubbing */}
-          <div className="px-3 pb-2">
-            <label className="text-[10px] text-zinc-500 mb-1 block">
-              🤖 AI 配音音色
-            </label>
-            <select
-              value={ttsVoice}
-              onChange={(e) => setTtsVoice(e.target.value)}
-              className="w-full text-[11px] bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300"
-            >
-              <option value="x_qingshan">🗣 陕西话-青山 (男)</option>
-              <option value="x_xiaoliang">🗣 湖南话-小亮 (男)</option>
-              <option value="xiaoyan">📢 普通话-小燕 (女)</option>
-              <option value="xiaofeng">📢 普通话-小峰 (男)</option>
-              <option value="x_xiaobao">📢 普通话-许小宝 (童)</option>
-            </select>
-          </div>
 
           {/* Waveform (visible when recording is stopped with audio) */}
           {recorder.status === "stopped" && recorder.audioBlob && (

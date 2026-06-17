@@ -20,7 +20,6 @@ export default function SettingsPanel({
   // Electron env status
   const [envStatus, setEnvStatus] = useState<{
     deepseekConfigured: boolean;
-    iflytekConfigured: boolean;
     configPath: string;
     configFileExists: boolean;
   } | null>(null);
@@ -83,20 +82,7 @@ export default function SettingsPanel({
                       {envStatus.deepseekConfigured ? "✓ 已配置" : "✗ 未配置"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">讯飞 TTS (AI 配音)</span>
-                    <span
-                      className={
-                        envStatus.iflytekConfigured
-                          ? "text-green-400"
-                          : "text-red-400"
-                      }
-                    >
-                      {envStatus.iflytekConfigured ? "✓ 已配置" : "✗ 未配置"}
-                    </span>
-                  </div>
-                  {!envStatus.deepseekConfigured ||
-                  !envStatus.iflytekConfigured ? (
+                  {!envStatus.deepseekConfigured ? (
                     <div className="mt-2 p-2 bg-zinc-800 rounded-md">
                       <p className="text-zinc-500 mb-1 leading-relaxed">
                         请在配置文件中设置 API 密钥：
@@ -199,7 +185,6 @@ export default function SettingsPanel({
                   // 编辑
                   ["B", "去除录音空白"],
                   ["S", "拆分长段落"],
-                  ["D", "AI 配音"],
                   ["A", "自动滚动（提词器）"],
                   // 波形选区
                   ["X", "剪切删除选区"],

@@ -13,8 +13,6 @@ interface SegmentRecorderProps {
   roles: Role[];
   recorder: RecorderState;
   onSplit?: () => void;
-  onTts?: (text: string, voice: string) => void;
-  ttsLoading?: boolean;
 }
 
 export default function SegmentRecorder({
@@ -22,8 +20,6 @@ export default function SegmentRecorder({
   roles,
   recorder,
   onSplit,
-  onTts,
-  ttsLoading = false,
 }: SegmentRecorderProps) {
   if (!segment) {
     return (
@@ -69,20 +65,6 @@ export default function SegmentRecorder({
             title="将长段落拆分为短段落，方便逐段录制"
           >
             拆分段落
-          </button>
-        </div>
-      )}
-
-      {/* AI dubbing button */}
-      {onTts && (
-        <div className="mb-2">
-          <button
-            onClick={() => onTts(segment.text, segment.roleId)}
-            disabled={ttsLoading}
-            className="w-full py-1.5 text-[11px] bg-purple-600/30 hover:bg-purple-600/50 disabled:opacity-40 text-purple-300 rounded border border-purple-500/30 flex items-center justify-center gap-1 transition-colors"
-            title="使用 AI 语音合成，自动为当前段落配音（陕西话）"
-          >
-            {ttsLoading ? "⏳ 生成中..." : "🤖 AI 配音"}
           </button>
         </div>
       )}

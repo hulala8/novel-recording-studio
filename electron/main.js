@@ -197,11 +197,6 @@ ipcMain.handle("get-env-status", () => {
   const env = loadConfig();
   return {
     deepseekConfigured: !!env.DEEPSEEK_API_KEY,
-    iflytekConfigured: !!(
-      env.IFLYTEK_APP_ID &&
-      env.IFLYTEK_API_KEY &&
-      env.IFLYTEK_API_SECRET
-    ),
     configPath: CONFIG_FILE,
     configDirExists: fs.existsSync(CONFIG_DIR),
     configFileExists: fs.existsSync(CONFIG_FILE),

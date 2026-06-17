@@ -19,7 +19,6 @@
 | 音频录制 | 浏览器 MediaRecorder API | — |
 | 音频编码 | lamejs (浏览器端 WAV→MP3) | 1.2.1 |
 | AI 角色识别 | DeepSeek Chat API | — |
-| TTS 语音合成 | 讯飞语音合成 API | — |
 | DOCX 解析 | mammoth | 1.12.0 |
 | ZIP 导出 | jszip | 3.10.1 |
 | TypeScript | | 5.x |
@@ -41,8 +40,7 @@ src/
 │   └── api/
 │       ├── parse-docx/route.ts           # 上传 DOCX → 提取纯文本
 │       ├── segment-text/route.ts         # 文本智能分段
-│       ├── identify-roles/route.ts       # AI 角色识别（DeepSeek + 规则回退）
-│       └── tts/route.ts                  # 讯飞 TTS 语音合成
+│       └── identify-roles/route.ts       # AI 角色识别（DeepSeek + 规则回退）
 ├── components/
 │   ├── upload/DocUploader.tsx            # 上传 + 审核界面（~600行）
 │   ├── text/
@@ -74,7 +72,6 @@ src/
 │   ├── deepseek.ts                       # DeepSeek API 调用 + AI 提示词
 │   ├── audio-utils.ts                    # 音频解码、WAV/MP3 转换、拼接
 │   ├── export-import.ts                  # ZIP 格式项目导出/导入
-│   ├── iflytek-tts.ts                    # 讯飞 TTS API 封装
 │   └── electron.d.ts / lamejs.d.ts      # 类型声明
 electron/
 ├── main.js                               # Electron 主进程（Next.js 程序化启动）
@@ -158,13 +155,12 @@ Project ──┬── Chapter[] ──┬── Segment[]
 4. **单章录音** — 每次只能录一章，无法跨章节管理
 5. **无音频后处理** — 无降噪、无音量归一化、无静音裁剪
 6. **提词器体验** — 大字滚动但无自动翻页、无语速提示
-7. **TTS 依赖外部 API** — 讯飞 API 需联网，无本地 TTS 方案
-8. **无项目管理** — 无法删除/归档项目，无搜索功能
-9. **录音格式** — 录制 WebM (Opus)，导出转 MP3，中间 WAV 转换浪费内存
-10. **无自动保存录音进度** — 没有标记哪些段已录、哪些未录的持久化状态
-11. **角色审核界面** — 对话段按顺序排列但无法看到"某角色所有台词"的聚合视图
-12. **章节内缺少导航** — 段落多时只能手动滚动，无跳转到指定段的功能
-13. **代码组织** — `studio/[id]/page.tsx` 超 1000 行，职责过多
-14. **无测试** — 0% 测试覆盖率
-15. **错误处理** — 多处 `console.error` 但无用户提示或重试机制
-16. **Electron 版本锁定** — 因 `require("electron")` 在 VSCode 终端下的问题，从 v42 降级到 v31
+7. **无项目管理** — 无法删除/归档项目，无搜索功能
+8. **录音格式** — 录制 WebM (Opus)，导出转 MP3，中间 WAV 转换浪费内存
+9. **无自动保存录音进度** — 没有标记哪些段已录、哪些未录的持久化状态
+10. **角色审核界面** — 对话段按顺序排列但无法看到"某角色所有台词"的聚合视图
+11. **章节内缺少导航** — 段落多时只能手动滚动，无跳转到指定段的功能
+12. **代码组织** — `studio/[id]/page.tsx` 超 1000 行，职责过多
+13. **无测试** — 0% 测试覆盖率
+14. **错误处理** — 多处 `console.error` 但无用户提示或重试机制
+15. **Electron 版本锁定** — 因 `require("electron")` 在 VSCode 终端下的问题，从 v42 降级到 v31
