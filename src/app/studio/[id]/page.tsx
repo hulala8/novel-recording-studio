@@ -760,6 +760,7 @@ export default function StudioPage() {
               onAdd={addRole}
               onRoleSelect={handleRoleFilterChange}
               onRolesChanged={setRoles}
+              onRoleAssignmentsChanged={loadSegments}
             />
           </div>
         </aside>

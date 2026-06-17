@@ -228,6 +228,38 @@ export async function replaceSegmentsRole(
 }
 
 /**
+ * Merge one role into another existing role across the whole project.
+ * All segments owned by sourceRoleId are reassigned to targetRoleId, then the
+ * source role is removed so the role list cannot contain duplicate names.
+ */
+export async function mergeRoleIntoExisting(
+  sourceRoleId: string,
+  targetRoleId: string,
+  targetRoleName: string,
+  projectId: string
+): Promise<void> {
+  if (sourceRoleId === targetRoleId) return;
+
+  const db = await getDB();
+  const chapters = await db.getAllFromIndex("chapters", "projectId", projectId);
+
+  for (const ch of chapters) {
+    const segments = await db.getAllFromIndex("segments", "chapterId", ch.id);
+    const tx = db.transaction("segments", "readwrite");
+    for (const seg of segments) {
+      if (seg.roleId === sourceRoleId) {
+        seg.roleId = targetRoleId;
+        seg.roleName = targetRoleName;
+        await tx.store.put(seg);
+      }
+    }
+    await tx.done;
+  }
+
+  await db.delete("roles", sourceRoleId);
+}
+
+/**
  * Delete a role from a project and reassign its segments to 旁白 (narrator).
  * Returns the 旁白 role's id, or creates one if it doesn't exist.
  */

@@ -18,6 +18,7 @@ interface RoleEditorProps {
   onAdd: (name: string, color: string) => Promise<Role>;
   onRoleSelect?: (roleId: string | null) => void;
   onRolesChanged: (roles: Role[]) => void;
+  onRoleAssignmentsChanged?: () => void | Promise<void>;
 }
 
 export default function RoleEditor({
@@ -28,6 +29,7 @@ export default function RoleEditor({
   onAdd,
   onRoleSelect,
   onRolesChanged,
+  onRoleAssignmentsChanged,
 }: RoleEditorProps) {
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
@@ -45,8 +47,34 @@ export default function RoleEditor({
   async function handleRename(roleId: string) {
     const newNameVal = editName.trim();
     if (!newNameVal) { setEditingId(null); return; }
+
+    const role = roles.find((r) => r.id === roleId);
+    if (!role || role.name === newNameVal) {
+      setEditingId(null);
+      return;
+    }
+
+    const existingRole = roles.find(
+      (r) => r.id !== roleId && r.name === newNameVal
+    );
+
+    if (existingRole) {
+      await db.mergeRoleIntoExisting(
+        roleId,
+        existingRole.id,
+        existingRole.name,
+        projectId
+      );
+      onRolesChanged(roles.filter((r) => r.id !== roleId));
+      if (activeRoleId === roleId) onRoleSelect?.(existingRole.id);
+      await onRoleAssignmentsChanged?.();
+      setEditingId(null);
+      return;
+    }
+
     await db.renameRole(roleId, projectId, newNameVal);
     onRolesChanged(roles.map((r) => r.id === roleId ? { ...r, name: newNameVal } : r));
+    await onRoleAssignmentsChanged?.();
     setEditingId(null);
   }
 
