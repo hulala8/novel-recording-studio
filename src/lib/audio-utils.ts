@@ -78,15 +78,30 @@ function writeString(view: DataView, offset: number, str: string): void {
 
 let lamejsReady: Promise<void> | null = null;
 
+type LameJsGlobal = {
+  Mp3Encoder: new (
+    channels: number,
+    sampleRate: number,
+    kbps: number
+  ) => {
+    encodeBuffer(left: Int16Array, right?: Int16Array): Uint8Array;
+    flush(): Uint8Array;
+  };
+};
+
+function getLamejs(): LameJsGlobal | undefined {
+  return (window as Window & { lamejs?: LameJsGlobal }).lamejs;
+}
+
 function ensureLamejs(): Promise<void> {
-  if ((window as any).lamejs?.Mp3Encoder) return Promise.resolve();
+  if (getLamejs()?.Mp3Encoder) return Promise.resolve();
   if (lamejsReady) return lamejsReady;
 
   lamejsReady = new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src = "/vendor/lamejs.js";
     script.onload = () => {
-      if ((window as any).lamejs?.Mp3Encoder) {
+      if (getLamejs()?.Mp3Encoder) {
         resolve();
       } else {
         reject(new Error("lamejs script loaded but Mp3Encoder not found"));
@@ -107,7 +122,7 @@ export async function wavBlobToMp3(wavBlob: Blob): Promise<Blob> {
   // Load lamejs as a global script (bundler can't handle its internal require() calls)
   await ensureLamejs();
 
-  const L = (window as any).lamejs;
+  const L = getLamejs();
   if (!L?.Mp3Encoder) {
     throw new Error("lamejs failed to initialize");
   }

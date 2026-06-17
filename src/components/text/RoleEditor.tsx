@@ -14,11 +14,10 @@ interface RoleEditorProps {
   roles: Role[];
   projectId: string;
   onAdd: (name: string, color: string) => Promise<Role>;
-  onSave: (roles: Role[]) => Promise<void>;
   onRolesChanged: (roles: Role[]) => void;
 }
 
-export default function RoleEditor({ roles, projectId, onAdd, onSave, onRolesChanged }: RoleEditorProps) {
+export default function RoleEditor({ roles, projectId, onAdd, onRolesChanged }: RoleEditorProps) {
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);

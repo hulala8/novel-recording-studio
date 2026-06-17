@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import type { Segment, Role } from "@/lib/types";
 
 interface TextViewerProps {
@@ -56,9 +57,9 @@ export default function TextViewer({
             />
           </>
         ) : (
-          <a href="/" className="text-blue-400 hover:text-blue-300 text-sm">
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">
             ← 返回首页上传文档
-          </a>
+          </Link>
         )}
       </div>
     );

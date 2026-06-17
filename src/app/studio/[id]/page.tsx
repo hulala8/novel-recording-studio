@@ -69,7 +69,7 @@ export default function StudioPage() {
   // Set first chapter as active when loaded
   useEffect(() => {
     if (chapters.length > 0 && !activeChapterId) {
-      setActiveChapterId(chapters[0].id);
+      queueMicrotask(() => setActiveChapterId(chapters[0].id));
     }
   }, [chapters, activeChapterId]);
 
@@ -77,7 +77,7 @@ export default function StudioPage() {
   useEffect(() => {
     if (activeChapterId) {
       loadSegments();
-      setActiveSegmentIndex(0);
+      queueMicrotask(() => setActiveSegmentIndex(0));
     }
   }, [activeChapterId, loadSegments]);
 
@@ -125,7 +125,7 @@ export default function StudioPage() {
   // Jump to first matching segment when filter changes
   useEffect(() => {
     if (roleFilter && filteredIndices.length > 0) {
-      setActiveSegmentIndex(filteredIndices[0]);
+      queueMicrotask(() => setActiveSegmentIndex(filteredIndices[0]));
     } else if (!roleFilter && segments.length > 0) {
       // Reset to beginning when clearing filter
       // (keep current position)
@@ -325,7 +325,7 @@ export default function StudioPage() {
         setRecordedDuration(newDuration);
       }
     },
-    [recorder.audioBlob, recordedBlob, activeSegment, updateSegment]
+    [recorder, recordedBlob, activeSegment, updateSegment]
   );
 
   // ---- Handle waveform middle-cut ----
@@ -525,7 +525,7 @@ export default function StudioPage() {
     } finally {
       setExportingNovel(false);
     }
-  }, [projectId, project?.name]);
+  }, [projectId, project]);
 
   // ---- Direct Enter handler (bypasses shortcut system for reliability) ----
   useEffect(() => {
@@ -735,7 +735,6 @@ export default function StudioPage() {
               roles={roles}
               projectId={projectId}
               onAdd={addRole}
-              onSave={saveRolesBatch}
               onRolesChanged={setRoles}
             />
           </div>

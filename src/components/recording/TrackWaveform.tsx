@@ -21,6 +21,45 @@ interface TrackWaveformProps {
 const EDGE_HANDLE_PX = 6; // visual width of edge handles in CSS px
 const MIN_SELECTION = 0.01; // minimum selection width in ratio
 
+function resizeCanvasToContainer(
+  canvas: HTMLCanvasElement | null,
+  container: HTMLDivElement | null
+) {
+  if (!canvas || !container) return false;
+  const dpr = window.devicePixelRatio || 1;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (w <= 0 || h <= 0) return false;
+  const targetW = Math.floor(w * dpr);
+  const targetH = Math.floor(h * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+  }
+  return true;
+}
+
+function drawEdgeHandle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  h: number,
+  dpr: number
+) {
+  const hw = EDGE_HANDLE_PX * dpr;
+  ctx.fillStyle = "#fafafa";
+  ctx.fillRect(x - hw / 2, 2 * dpr, hw, h - 4 * dpr);
+  ctx.fillStyle = "#fafafa";
+  ctx.beginPath();
+  const dir = x < ctx.canvas.width / 2 ? 1 : -1;
+  ctx.moveTo(x + dir * 4 * dpr, 4 * dpr);
+  ctx.lineTo(x, 8 * dpr);
+  ctx.lineTo(x + dir * 4 * dpr, 12 * dpr);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export default function TrackWaveform({
   audioBlob,
   duration,
@@ -46,13 +85,18 @@ export default function TrackWaveform({
   // ---- Decode audio ----
   useEffect(() => {
     if (!audioBlob) {
-      setWaveData(null);
-      setSelStart(null);
-      setSelEnd(null);
+      queueMicrotask(() => {
+        setWaveData(null);
+        setSelStart(null);
+        setSelEnd(null);
+        setLoading(false);
+      });
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
     const ctx = new AudioContext();
     let ctxClosed = false;
     const closeCtx = () => { if (!ctxClosed) { ctxClosed = true; ctx.close(); } };
@@ -88,23 +132,10 @@ export default function TrackWaveform({
 
   // ---- Resize canvas ----
   const resizeCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
-    if (w <= 0 || h <= 0) {
-      requestAnimationFrame(() => resizeCanvas());
-      return;
-    }
-    const targetW = Math.floor(w * dpr);
-    const targetH = Math.floor(h * dpr);
-    if (canvas.width !== targetW || canvas.height !== targetH) {
-      canvas.width = targetW;
-      canvas.height = targetH;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
+    if (!resizeCanvasToContainer(canvasRef.current, containerRef.current)) {
+      requestAnimationFrame(() => {
+        resizeCanvasToContainer(canvasRef.current, containerRef.current);
+      });
     }
   }, []);
 
@@ -298,28 +329,17 @@ export default function TrackWaveform({
       ctx.textAlign = "right";
       ctx.fillText(formatTime(selEnd! * duration), eX - 4 * dpr, 2 * dpr);
     }
-  }, [waveData, selStart, selEnd, currentTime, isPlaying, duration, loading]);
-
-  function drawEdgeHandle(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    h: number,
-    dpr: number
-  ) {
-    const hw = EDGE_HANDLE_PX * dpr;
-    // White vertical line
-    ctx.fillStyle = "#fafafa";
-    ctx.fillRect(x - hw / 2, 2 * dpr, hw, h - 4 * dpr);
-    // Small arrow/triangle at top pointing inward
-    ctx.fillStyle = "#fafafa";
-    ctx.beginPath();
-    const dir = x < ctx.canvas.width / 2 ? 1 : -1; // point inward
-    ctx.moveTo(x + dir * 4 * dpr, 4 * dpr);
-    ctx.lineTo(x, 8 * dpr);
-    ctx.lineTo(x + dir * 4 * dpr, 12 * dpr);
-    ctx.closePath();
-    ctx.fill();
-  }
+  }, [
+    waveData,
+    selStart,
+    selEnd,
+    currentTime,
+    isPlaying,
+    duration,
+    loading,
+    autoTrimStart,
+    autoTrimEnd,
+  ]);
 
   // ---- Pointer interaction ----
   const toRatio = useCallback(
@@ -389,7 +409,7 @@ export default function TrackWaveform({
         }
       }
     },
-    [dragging]
+    [dragging, toRatio]
   );
 
   const handlePointerUp = useCallback(() => {

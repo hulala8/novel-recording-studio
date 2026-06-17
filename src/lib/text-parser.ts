@@ -42,7 +42,7 @@ interface QuotedPart {
 function extractQuotedParts(text: string): QuotedPart[] {
   const result: QuotedPart[] = [];
   let buffer = "";
-  let quoteStack: string[] = []; // tracks which left quote we're inside
+  const quoteStack: string[] = []; // tracks which left quote we're inside
   let i = 0;
 
   while (i < text.length) {

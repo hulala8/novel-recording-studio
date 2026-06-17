@@ -8,6 +8,12 @@ import { useState, useCallback, useEffect } from "react";
 import type { Project, Chapter, Segment, Role, RecordingData } from "@/lib/types";
 import * as db from "@/lib/db";
 
+function runAfterRender(task: () => void | Promise<void>) {
+  queueMicrotask(() => {
+    void task();
+  });
+}
+
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +28,7 @@ export function useProjects() {
   }, []);
 
   useEffect(() => {
-    loadProjects();
+    runAfterRender(loadProjects);
   }, [loadProjects]);
 
   const createProject = useCallback(async (name: string) => {
@@ -66,7 +72,11 @@ export function useChapters(projectId: string) {
   const [loading, setLoading] = useState(true);
 
   const loadChapters = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      setChapters([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const chs = await db.getChaptersByProject(projectId);
     setChapters(chs);
@@ -74,7 +84,7 @@ export function useChapters(projectId: string) {
   }, [projectId]);
 
   useEffect(() => {
-    loadChapters();
+    runAfterRender(loadChapters);
   }, [loadChapters]);
 
   const createChapter = useCallback(
@@ -128,14 +138,18 @@ export function useSegments(chapterId: string) {
   const [loading, setLoading] = useState(true);
 
   const loadSegments = useCallback(async () => {
-    if (!chapterId) return;
+    if (!chapterId) {
+      setSegments([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setSegments(await db.getSegmentsByChapter(chapterId));
     setLoading(false);
   }, [chapterId]);
 
   useEffect(() => {
-    loadSegments();
+    runAfterRender(loadSegments);
   }, [loadSegments]);
 
   const importSegments = useCallback(
@@ -160,12 +174,15 @@ export function useRoles(projectId: string) {
   const [roles, setRoles] = useState<Role[]>([]);
 
   const loadRoles = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      setRoles([]);
+      return;
+    }
     setRoles(await db.getRolesByProject(projectId));
   }, [projectId]);
 
   useEffect(() => {
-    loadRoles();
+    runAfterRender(loadRoles);
   }, [loadRoles]);
 
   const saveRolesBatch = useCallback(
@@ -202,7 +219,7 @@ export function useRecordings() {
   }, []);
 
   useEffect(() => {
-    loadRecordings();
+    runAfterRender(loadRecordings);
   }, [loadRecordings]);
 
   const saveRecording = useCallback(

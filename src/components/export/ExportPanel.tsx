@@ -61,9 +61,10 @@ export default function ExportPanel({ segments, roles, chapterTitle }: ExportPan
       setProgress(90);
 
       // Download
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = chapterTitle
         ? `${chapterTitle}.mp3`
-        : `novel-recording-${Date.now()}.mp3`;
+        : `novel-recording-${timestamp}.mp3`;
       downloadBlob(mp3Blob, filename);
 
       setProgress(100);

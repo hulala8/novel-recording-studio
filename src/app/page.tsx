@@ -54,7 +54,7 @@ export default function Home() {
     setImportProgress(null);
 
     try {
-      const projectId = await importProjectFromZip(file, setImportProgress, mode);
+      await importProjectFromZip(file, setImportProgress, mode);
       await loadProjects();
       setImportStatus("idle");
       // Optionally navigate to imported project

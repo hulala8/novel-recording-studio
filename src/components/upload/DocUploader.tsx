@@ -25,7 +25,6 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   const [chapterTitle, setChapterTitle] = useState("第1章");
   const [projectName, setProjectName] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [chapterId, setChapterId] = useState<string | null>(null);
   const fileRef = useRef<File | null>(null);
 
   // Review state
@@ -112,7 +111,6 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
           segments: [],
         };
         await db.saveChapter(chapter);
-        setChapterId(chapter.id);
 
         const newSegments: Segment[] = rawSegments.map((raw: RawSegment) => {
           const roleAssignment = roleData.segmentRoles.find(
@@ -255,15 +253,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   }
 
   // -------- Computed stats --------
-  const unlabeledCount = segments.filter(
-    (s) => s.roleName === "旁白" && segments.some(
-      // Check if this segment is _not_ a true narration
-      (orig) => orig.id === s.id
-    )
-  ).length;
-
-  // Actually, we stored raw segments' type info is lost after conversion to Segment.
-  // Use heuristic: dialogue segments have quotes
+  // Type metadata is not stored after review conversion, so use quotes as a heuristic.
   const dialogueLike = (text: string) => /[""「」『』]/.test(text);
   const unlabeledSegments = segments.filter(
     (s) => dialogueLike(s.text) && s.roleName === "旁白"

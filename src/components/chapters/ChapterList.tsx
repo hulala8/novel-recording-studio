@@ -18,7 +18,6 @@ export default function ChapterList({
   onSelect,
   onCreate,
   onDelete,
-  onReorder,
 }: ChapterListProps) {
   const [newTitle, setNewTitle] = useState("");
 
