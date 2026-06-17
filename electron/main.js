@@ -63,6 +63,21 @@ function loadConfig() {
 
 // -------- Next.js server lifecycle (programmatic API) --------
 
+function isExistingStudioServerReady() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://localhost:${NEXT_PORT}`, (res) => {
+      res.resume();
+      resolve(Boolean(res.statusCode && res.statusCode < 500));
+    });
+
+    req.on("error", () => resolve(false));
+    req.setTimeout(1500, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
 function startNextServer(envVars) {
   return new Promise(async (resolve, reject) => {
     logStartup(`[Electron] Starting Next.js on port ${NEXT_PORT}...`);
@@ -109,7 +124,15 @@ function startNextServer(envVars) {
         resolve();
       });
 
-      nextServer.on("error", (err) => {
+      nextServer.on("error", async (err) => {
+        if (err.code === "EADDRINUSE" && (await isExistingStudioServerReady())) {
+          logStartup(`[Electron] Reusing existing app server on port ${NEXT_PORT}`);
+          nextServer = null;
+          nextApp = null;
+          resolve();
+          return;
+        }
+
         logStartup("[Electron] Next.js server error:", err);
         reject(err);
       });
@@ -134,7 +157,7 @@ function stopNextServer() {
 function setupPermissions() {
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback, details) => {
-    logStartup(`[Electron] Permission requested: ${permission} ${JSON.stringify(details)}`);
+      logStartup(`[Electron] Permission requested: ${permission} ${JSON.stringify(details)}`);
 
       const allowedPermissions = [
         "media",
@@ -173,12 +196,30 @@ function setupPermissions() {
 
 // -------- Window management --------
 
+function showMainWindow() {
+  if (!mainWindow) return;
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+
+  if (process.platform === "darwin") {
+    app.focus({ steal: true });
+  }
+
+  mainWindow.focus();
+}
+
 function createWindow() {
+  logStartup("[Electron] Creating main window...");
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    show: false,
     title: "小说录音工作室",
     backgroundColor: "#09090b",
     webPreferences: {
@@ -188,9 +229,30 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
+  mainWindow.once("ready-to-show", () => {
+    logStartup("[Electron] Main window ready to show");
+    showMainWindow();
+  });
+
+  mainWindow.on("show", () => {
+    logStartup("[Electron] Main window shown");
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, code, description) => {
+    logStartup(`[Electron] Main window failed to load: ${code} ${description}`);
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    logStartup("[Electron] Main window finished loading");
+    showMainWindow();
+  });
+
+  mainWindow.loadURL(`http://localhost:${NEXT_PORT}`).catch((err) => {
+    logStartup("[Electron] Main window loadURL failed:", err);
+  });
 
   mainWindow.on("closed", () => {
+    logStartup("[Electron] Main window closed");
     mainWindow = null;
   });
 }
@@ -220,7 +282,7 @@ ipcMain.handle("get-env-status", () => {
 
 // -------- App lifecycle --------
 
-app.whenReady().then(async () => {
+async function launchApp() {
   try {
     setupPermissions();
     const envVars = loadConfig();
@@ -234,12 +296,31 @@ app.whenReady().then(async () => {
     );
     app.quit();
   }
-});
+}
+
+app.whenReady().then(launchApp);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     stopNextServer();
     app.quit();
+  }
+});
+
+app.on("activate", async () => {
+  logStartup("[Electron] App activated");
+  try {
+    if (!nextServer) {
+      const envVars = loadConfig();
+      await startNextServer(envVars);
+    }
+    if (!mainWindow) {
+      createWindow();
+    } else {
+      showMainWindow();
+    }
+  } catch (err) {
+    logStartup("[Electron] Activate failed:", err);
   }
 });
 

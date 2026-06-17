@@ -13,8 +13,6 @@ function run(command, args) {
   execFileSync(command, args, { stdio: "inherit" });
 }
 
-// Electron's framework binary is linker-signed by Apple's toolchain. Re-signing
-// it ad-hoc can make dyld reject Electron Framework on newer macOS versions.
-// For this local development build, remove quarantine attributes only and leave
-// electron-builder's generated signatures intact.
 run("xattr", ["-cr", appPath]);
+run("codesign", ["--force", "--sign", "-", appPath]);
+run("codesign", ["--verify", "--strict", "--verbose=2", appPath]);
