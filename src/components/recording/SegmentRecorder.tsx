@@ -13,6 +13,7 @@ interface SegmentRecorderProps {
   roles: Role[];
   recorder: RecorderState;
   onSplit?: () => void;
+  onRoleChange?: (roleId: string, roleName: string) => void;
 }
 
 export default function SegmentRecorder({
@@ -20,6 +21,7 @@ export default function SegmentRecorder({
   roles,
   recorder,
   onSplit,
+  onRoleChange,
 }: SegmentRecorderProps) {
   if (!segment) {
     return (
@@ -38,12 +40,31 @@ export default function SegmentRecorder({
     <div className="p-3">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs text-zinc-500">第 {segment.index + 1} 段</span>
-        <span
-          className="px-1.5 py-0.5 rounded text-xs font-medium"
-          style={{ backgroundColor: roleColor + "30", color: roleColor }}
-        >
-          {segment.roleName}
-        </span>
+        {onRoleChange ? (
+          <select
+            value={segment.roleId}
+            onChange={(e) => {
+              const selected = roles.find((r) => r.id === e.target.value);
+              if (selected) onRoleChange(selected.id, selected.name);
+            }}
+            className="px-1.5 py-0.5 rounded text-xs font-medium bg-zinc-900 border border-zinc-700 outline-none"
+            style={{ color: roleColor }}
+            title="调整当前段落角色"
+          >
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span
+            className="px-1.5 py-0.5 rounded text-xs font-medium"
+            style={{ backgroundColor: roleColor + "30", color: roleColor }}
+          >
+            {segment.roleName}
+          </span>
+        )}
         {segment.recordingId && (
           <span className="text-[10px] text-green-500">● 已录制</span>
         )}

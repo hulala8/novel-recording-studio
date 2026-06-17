@@ -173,11 +173,11 @@ async function callDeepSeek(
     }
   }
 
-  return {
-    success: true,
-    roles: parsed.roles || [],
-    segmentRoles: forceNarrationToNarrator(segments, parsed.segmentRoles || []),
-  };
+  return pruneUnusedDialogueRoles(
+    segments,
+    parsed.roles || [],
+    parsed.segmentRoles || []
+  );
 }
 
 /**
@@ -202,6 +202,50 @@ const ROLE_COLORS = [
   "#8B5CF6", "#EC4899", "#06B6D4", "#F97316",
   "#84CC16", "#14B8A6", "#E11D48", "#A855F7",
 ];
+
+/**
+ * Keep only roles that are actually assigned to dialogue segments.
+ * This removes zero-dialogue false positives from AI/rule extraction.
+ */
+export function pruneUnusedDialogueRoles(
+  segments: RawSegment[],
+  roles: { name: string; color: string }[],
+  segmentRoles: { segmentIndex: number; roleName: string }[]
+): IdentifyRolesResponse {
+  const forcedSegmentRoles = forceNarrationToNarrator(segments, segmentRoles);
+  const segmentTypeByIndex = new Map(segments.map((s) => [s.index, s.type]));
+  const usedDialogueRoles = new Set<string>();
+
+  for (const assignment of forcedSegmentRoles) {
+    if (
+      assignment.roleName &&
+      assignment.roleName !== "旁白" &&
+      segmentTypeByIndex.get(assignment.segmentIndex) === "dialogue"
+    ) {
+      usedDialogueRoles.add(assignment.roleName);
+    }
+  }
+
+  const existingByName = new Map(roles.map((r) => [r.name, r]));
+  const cleanedRoles = [
+    existingByName.get("旁白") || { name: "旁白", color: "#6B7280" },
+  ];
+
+  for (const roleName of usedDialogueRoles) {
+    cleanedRoles.push(
+      existingByName.get(roleName) || {
+        name: roleName,
+        color: ROLE_COLORS[(cleanedRoles.length - 1) % ROLE_COLORS.length],
+      }
+    );
+  }
+
+  return {
+    success: true,
+    roles: cleanedRoles,
+    segmentRoles: forcedSegmentRoles,
+  };
+}
 
 /**
  * Main entry point: identify roles from text segments.
@@ -279,11 +323,11 @@ export async function identifyRoles(
       }
     }
 
-    return {
-      success: true,
-      roles: Array.from(seen.values()),
-      segmentRoles: forceNarrationToNarrator(segments, allSegmentRoles),
-    };
+    return pruneUnusedDialogueRoles(
+      segments,
+      Array.from(seen.values()),
+      allSegmentRoles
+    );
   } catch (err) {
     return {
       success: false,

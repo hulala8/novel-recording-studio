@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import * as db from "@/lib/db";
-import type { Role } from "@/lib/types";
+import type { Role, RoleProgress } from "@/lib/types";
 
 const PRESET_COLORS = [
   "#EF4444", "#3B82F6", "#10B981", "#F59E0B",
@@ -13,11 +13,22 @@ const PRESET_COLORS = [
 interface RoleEditorProps {
   roles: Role[];
   projectId: string;
+  activeRoleId?: string | null;
+  progressByRole?: Record<string, RoleProgress>;
   onAdd: (name: string, color: string) => Promise<Role>;
+  onRoleSelect?: (roleId: string | null) => void;
   onRolesChanged: (roles: Role[]) => void;
 }
 
-export default function RoleEditor({ roles, projectId, onAdd, onRolesChanged }: RoleEditorProps) {
+export default function RoleEditor({
+  roles,
+  projectId,
+  activeRoleId,
+  progressByRole = {},
+  onAdd,
+  onRoleSelect,
+  onRolesChanged,
+}: RoleEditorProps) {
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,44 +58,123 @@ export default function RoleEditor({ roles, projectId, onAdd, onRolesChanged }: 
 
   return (
     <div>
-      <p className="text-xs font-medium text-zinc-400 mb-2">角色管理</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-zinc-400">角色管理</p>
+        {onRoleSelect && (
+          <button
+            onClick={() => onRoleSelect(null)}
+            className={`text-[10px] px-2 py-0.5 rounded ${
+              activeRoleId
+                ? "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                : "bg-blue-600 text-white"
+            }`}
+            title="显示全部角色"
+          >
+            全部
+          </button>
+        )}
+      </div>
 
-      <div className="space-y-1 mb-2 max-h-40 overflow-y-auto">
-        {roles.map((role) => (
-          <div key={role.id} className="flex items-center gap-2 text-xs group">
-            <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
-            {editingId === role.id ? (
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={() => handleRename(role.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRename(role.id);
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-                className="flex-1 px-1 py-0 text-xs bg-zinc-800 border border-zinc-600 rounded outline-none"
-                autoFocus
-              />
-            ) : (
-              <span
-                className="text-zinc-300 truncate flex-1 cursor-pointer hover:text-white"
-                onClick={() => { setEditingId(role.id); setEditName(role.name); }}
-                title="点击重命名"
-              >
-                {role.name}
-              </span>
-            )}
-            {role.name !== "旁白" && (
-              <button
-                onClick={() => handleDelete(role.id, role.name)}
-                className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-opacity text-sm"
-                title="删除角色（段落将归为旁白）"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        ))}
+      <div className="space-y-1 mb-2 max-h-56 overflow-y-auto">
+        {roles.map((role) => {
+          const progress = progressByRole[role.id] || {
+            roleId: role.id,
+            total: 0,
+            recorded: 0,
+          };
+          const percent =
+            progress.total > 0
+              ? Math.round((progress.recorded / progress.total) * 100)
+              : 0;
+
+          return (
+            <button
+              key={role.id}
+              onClick={() => onRoleSelect?.(activeRoleId === role.id ? null : role.id)}
+              className={`w-full rounded-md border p-2 text-left text-xs group transition-colors ${
+                activeRoleId === role.id
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
+                {editingId === role.id ? (
+                  <input
+                    value={editName}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={() => handleRename(role.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRename(role.id);
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="flex-1 px-1 py-0 text-xs bg-zinc-800 border border-zinc-600 rounded outline-none"
+                    autoFocus
+                  />
+                ) : (
+                  <span className="text-zinc-300 truncate flex-1" title={role.name}>
+                    {role.name}
+                  </span>
+                )}
+                <span className="text-[10px] text-zinc-500 tabular-nums">
+                  {progress.recorded}/{progress.total}
+                </span>
+                {editingId !== role.id && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(role.id);
+                      setEditName(role.name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        setEditingId(role.id);
+                        setEditName(role.name);
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-200 transition-opacity"
+                    title="重命名角色"
+                  >
+                    改
+                  </span>
+                )}
+                {role.name !== "旁白" && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(role.id, role.name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        handleDelete(role.id, role.name);
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-opacity text-sm"
+                    title="删除角色（段落将归为旁白）"
+                  >
+                    ×
+                  </span>
+                )}
+              </div>
+              <div className="mt-1.5 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${percent}%`,
+                    backgroundColor: role.color,
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="space-y-1">

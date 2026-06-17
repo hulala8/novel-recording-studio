@@ -4,7 +4,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { identifyRoles } from "@/lib/deepseek";
+import { identifyRoles, pruneUnusedDialogueRoles } from "@/lib/deepseek";
 import { extractCharacterNames, ruleBasedRoleAssign } from "@/lib/text-parser";
 import type { IdentifyRolesRequest } from "@/lib/types";
 
@@ -46,11 +46,9 @@ export async function POST(request: NextRequest) {
       color: defaultColors[i % defaultColors.length],
     }));
 
-    return NextResponse.json({
-      success: true,
-      roles,
-      segmentRoles,
-    });
+    return NextResponse.json(
+      pruneUnusedDialogueRoles(body.segments, roles, segmentRoles)
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown error";

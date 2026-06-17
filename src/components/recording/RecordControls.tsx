@@ -151,7 +151,6 @@ export default function RecordControls({
         <span>← → 切换</span>
         <span>Ctrl+R 重录</span>
         <span>P 试听</span>
-        <span>B 去空白</span>
         <span>⇧P 全部</span>
       </div>
     </div>

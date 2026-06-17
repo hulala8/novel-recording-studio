@@ -12,11 +12,13 @@ interface ExportPanelProps {
 }
 
 type ExportStatus = "idle" | "loading" | "merging" | "encoding" | "done" | "error";
+type ExportFormat = "mp3" | "wav";
 
 export default function ExportPanel({ segments, roles, chapterTitle }: ExportPanelProps) {
   const [status, setStatus] = useState<ExportStatus>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [format, setFormat] = useState<ExportFormat>("mp3");
 
   const recordedSegments = segments.filter((s) => s.recordingId);
   const unrecordedCount = segments.length - recordedSegments.length;
@@ -52,20 +54,22 @@ export default function ExportPanel({ segments, roles, chapterTitle }: ExportPan
       setStatus("merging");
       const wavBlob = await concatAudioBlobs(blobs);
 
-      setProgress(60);
+      setProgress(format === "wav" ? 90 : 60);
 
-      // Encode WAV → MP3
-      setStatus("encoding");
-      const mp3Blob = await wavBlobToMp3(wavBlob);
-
-      setProgress(90);
+      let exportBlob = wavBlob;
+      if (format === "mp3") {
+        // Encode WAV → MP3
+        setStatus("encoding");
+        exportBlob = await wavBlobToMp3(wavBlob);
+        setProgress(90);
+      }
 
       // Download
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = chapterTitle
-        ? `${chapterTitle}.mp3`
-        : `novel-recording-${timestamp}.mp3`;
-      downloadBlob(mp3Blob, filename);
+        ? `${chapterTitle}.${format}`
+        : `novel-recording-${timestamp}.${format}`;
+      downloadBlob(exportBlob, filename);
 
       setProgress(100);
       setStatus("done");
@@ -77,7 +81,7 @@ export default function ExportPanel({ segments, roles, chapterTitle }: ExportPan
 
   return (
     <div className="max-w-md mx-auto">
-      <h3 className="text-lg font-bold mb-4">导出 MP3</h3>
+      <h3 className="text-lg font-bold mb-4">导出音频</h3>
 
       {/* Stats */}
       <div className="space-y-2 mb-4 text-sm text-zinc-400">
@@ -95,6 +99,33 @@ export default function ExportPanel({ segments, roles, chapterTitle }: ExportPan
             </span>
           </div>
         )}
+      </div>
+
+      <div className="mb-4">
+        <p className="text-xs text-zinc-500 mb-2">导出格式：</p>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { value: "mp3" as const, label: "MP3", hint: "体积小，方便分享" },
+            { value: "wav" as const, label: "WAV", hint: "无损，适合后期" },
+          ].map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setFormat(option.value)}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                format === option.value
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+              }`}
+            >
+              <span className="block text-sm font-semibold text-zinc-100">
+                {option.label}
+              </span>
+              <span className="block text-[10px] text-zinc-500">
+                {option.hint}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Role breakdown */}
@@ -148,14 +179,14 @@ export default function ExportPanel({ segments, roles, chapterTitle }: ExportPan
       <button
         onClick={handleExport}
         disabled={status === "loading" || status === "merging" || status === "encoding"}
-        title="导出已录制段落为 MP3 文件 (E)"
+        title={`导出已录制段落为 ${format.toUpperCase()} 文件 (E)`}
         className={`w-full py-2 rounded-md font-medium text-sm transition-colors ${
           status === "done"
             ? "bg-green-600 hover:bg-green-500"
             : "bg-blue-600 hover:bg-blue-500"
         } disabled:opacity-50`}
       >
-        {status === "idle" && "导出 MP3"}
+        {status === "idle" && `导出 ${format.toUpperCase()}`}
         {status === "loading" && "正在加载..."}
         {status === "merging" && "正在合并音轨..."}
         {status === "encoding" && "正在编码 MP3..."}

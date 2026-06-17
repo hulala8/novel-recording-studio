@@ -35,6 +35,12 @@ export interface Role {
   color: string;
 }
 
+export interface RoleProgress {
+  roleId: string;
+  total: number;
+  recorded: number;
+}
+
 export interface RecordingData {
   id: string;
   segmentId: string;

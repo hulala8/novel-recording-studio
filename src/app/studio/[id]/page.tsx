@@ -26,7 +26,7 @@ import SettingsPanel from "@/components/layout/SettingsPanel";
 import { getRecording } from "@/lib/db";
 import { exportProjectToZip, sanitizeFilename } from "@/lib/export-import";
 import { downloadBlob } from "@/lib/audio-utils";
-import type { Segment } from "@/lib/types";
+import type { RoleProgress, Segment } from "@/lib/types";
 import Link from "next/link";
 
 export default function StudioPage() {
@@ -43,13 +43,12 @@ export default function StudioPage() {
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<"normal" | "teleprompter">("normal");
   const [showExport, setShowExport] = useState(false);
-  const [silenceSettings, setSilenceSettings] = useState({
-    silenceThreshold: 0.015,
-    minSilenceDuration: 0.8,
-  });
   const [autoTrimStart, setAutoTrimStart] = useState(false); // 自动切除开头噪音
   const [autoTrimDuration] = useState(0.5); // 切除秒数
   const [roleFilter, setRoleFilter] = useState<string | null>(null); // null=全部角色
+  const [playbackScope, setPlaybackScope] = useState<"segment" | "all" | null>(
+    null
+  );
 
   const project = projects.find((p) => p.id === projectId);
   const activeChapter = chapters.find((c) => c.id === activeChapterId);
@@ -121,6 +120,39 @@ export default function StudioPage() {
       return acc;
     }, []);
   }, [segments, roleFilter]);
+
+  const progressByRole = useMemo<Record<string, RoleProgress>>(() => {
+    const result: Record<string, RoleProgress> = {};
+    for (const role of roles) {
+      result[role.id] = { roleId: role.id, total: 0, recorded: 0 };
+    }
+    for (const segment of segments) {
+      if (!result[segment.roleId]) {
+        result[segment.roleId] = {
+          roleId: segment.roleId,
+          total: 0,
+          recorded: 0,
+        };
+      }
+      result[segment.roleId].total += 1;
+      if (segment.recordingId) {
+        result[segment.roleId].recorded += 1;
+      }
+    }
+    return result;
+  }, [roles, segments]);
+
+  const handleRoleFilterChange = useCallback((roleId: string | null) => {
+    setRoleFilter(roleId);
+  }, []);
+
+  const handleSegmentRoleChange = useCallback(
+    async (segment: Segment, roleId: string, roleName: string) => {
+      await updateSegment({ ...segment, roleId, roleName });
+      await loadSegments();
+    },
+    [loadSegments, updateSegment]
+  );
 
   // Jump to first matching segment when filter changes
   useEffect(() => {
@@ -453,6 +485,7 @@ export default function StudioPage() {
     const { getRecording } = await import("@/lib/db");
     const rec = await getRecording(activeSegment.recordingId);
     if (rec) {
+      setPlaybackScope("segment");
       await player.loadAudio(rec.audioBlob);
       player.play();
     }
@@ -461,6 +494,7 @@ export default function StudioPage() {
   // ---- Preview recording (just recorded, not saved yet) ----
   const handlePreviewRecording = useCallback(async () => {
     if (!recorder.audioBlob) return;
+    setPlaybackScope("segment");
     await player.loadAudio(recorder.audioBlob);
     player.play();
   }, [recorder.audioBlob, player]);
@@ -468,6 +502,7 @@ export default function StudioPage() {
   // Play saved recording (for teleprompter waveform)
   const handlePlaySaved = useCallback(async () => {
     if (!recordedBlob) return;
+    setPlaybackScope("segment");
     await player.loadAudio(recordedBlob);
     player.play();
   }, [recordedBlob, player]);
@@ -504,6 +539,7 @@ export default function StudioPage() {
       }
 
       const merged = blobs.length === 1 ? blobs[0] : await concatAudioBlobs(blobs);
+      setPlaybackScope("all");
       await player.loadAudio(merged);
       player.play();
     } catch (err) {
@@ -511,6 +547,11 @@ export default function StudioPage() {
       alert(`试听全部失败：${err instanceof Error ? err.message : "未知错误"}`);
     }
   }, [segments, player]);
+
+  const handleStopPlayback = useCallback(() => {
+    player.stop();
+    setPlaybackScope(null);
+  }, [player]);
 
   // ---- Export project as .novel backup ----
   const [exportingNovel, setExportingNovel] = useState(false);
@@ -592,11 +633,6 @@ export default function StudioPage() {
           handlePlaySaved();
         }
       },
-      b: () => {
-        if (recorder.status === "stopped" && recorder.audioBlob && recorder.stripSilence) {
-          recorder.stripSilence(silenceSettings);
-        }
-      },
       s: () => {
         if (activeSegment && activeSegment.text.length > 60) {
           handleSplitSegment();
@@ -654,21 +690,6 @@ export default function StudioPage() {
         <span className="text-xs text-zinc-500">
           {viewMode === "teleprompter" ? "提词器模式" : "普通模式"}
         </span>
-        <span className="text-zinc-600">|</span>
-        {/* Role filter — affects navigation */}
-        <select
-          value={roleFilter || ""}
-          onChange={(e) => setRoleFilter(e.target.value || null)}
-          className="text-[11px] bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-300"
-          title="只录制选中角色的段落，其他角色自动跳过"
-        >
-          <option value="">🎭 全部角色</option>
-          {roles.map((r) => (
-            <option key={r.id} value={r.id}>
-              🎤 {r.name}
-            </option>
-          ))}
-        </select>
         {roleFilter && (
           <span className="text-[10px] text-yellow-400">
             仅录 {roles.find(r => r.id === roleFilter)?.name || ""} ({filteredIndices.length}段)
@@ -734,7 +755,10 @@ export default function StudioPage() {
             <RoleEditor
               roles={roles}
               projectId={projectId}
+              activeRoleId={roleFilter}
+              progressByRole={progressByRole}
               onAdd={addRole}
+              onRoleSelect={handleRoleFilterChange}
               onRolesChanged={setRoles}
             />
           </div>
@@ -767,13 +791,13 @@ export default function StudioPage() {
               onCut={handleCut}
               onTrim={handleTrim}
               onSplit={handleSplitSegment}
-              silenceSettings={silenceSettings}
               recordedBlob={recordedBlob}
               recordedDuration={recordedDuration}
               onPlaySaved={handlePlaySaved}
               onSeek={handleSeek}
               roleFilter={roleFilter}
-              onRoleFilterChange={setRoleFilter}
+              onRoleFilterChange={handleRoleFilterChange}
+              progressByRole={progressByRole}
               onNextFiltered={goToNextFiltered}
               onPrevFiltered={goToPrevFiltered}
               autoTrimStart={autoTrimStart}
@@ -789,8 +813,7 @@ export default function StudioPage() {
               onRoleChange={async (segmentId, roleId, roleName) => {
                 const seg = segments.find((s) => s.id === segmentId);
                 if (seg) {
-                  await updateSegment({ ...seg, roleId, roleName });
-                  await loadSegments();
+                  await handleSegmentRoleChange(seg, roleId, roleName);
                 }
               }}
             />
@@ -811,6 +834,11 @@ export default function StudioPage() {
             roles={roles}
             recorder={recorder}
             onSplit={handleSplitSegment}
+            onRoleChange={(roleId, roleName) => {
+              if (activeSegment) {
+                void handleSegmentRoleChange(activeSegment, roleId, roleName);
+              }
+            }}
           />
 
           {/* Waveform (visible when recording is stopped with audio) */}
@@ -847,14 +875,6 @@ export default function StudioPage() {
                 >
                   {player.status === "playing" ? "⏸ 暂停试听" : "▶ 试听录制内容"}
                   <kbd className="text-[9px] opacity-50">P</kbd>
-                </button>
-                <button
-                  onClick={() => recorder.stripSilence(silenceSettings)}
-                  className="py-1.5 px-3 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded flex items-center gap-1 transition-colors"
-                  title="自动检测并去除录音中的静音空白片段 (B)"
-                >
-                  🔇 去空白
-                  <kbd className="text-[9px] opacity-50">B</kbd>
                 </button>
               </div>
             </div>
@@ -940,7 +960,9 @@ export default function StudioPage() {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => {
-                    if (player.status === "playing") {
+                    if (playbackScope !== "all") {
+                      handlePlayAll();
+                    } else if (player.status === "playing") {
                       player.pause();
                     } else if (player.status === "paused") {
                       player.play();
@@ -950,25 +972,26 @@ export default function StudioPage() {
                   }}
                   className="text-[10px] px-2 py-0.5 rounded text-white bg-blue-600 hover:bg-blue-500 transition-colors"
                   title={
-                    player.status === "playing"
+                    playbackScope === "all" && player.status === "playing"
                       ? "暂停"
-                      : player.status === "paused"
+                      : playbackScope === "all" && player.status === "paused"
                       ? "继续播放"
                       : "试听全部已录音段落 (Shift+P)"
                   }
                 >
-                  {player.status === "playing"
+                  {playbackScope === "all" && player.status === "playing"
                     ? "⏸ 暂停"
-                    : player.status === "paused"
+                    : playbackScope === "all" && player.status === "paused"
                     ? "▶ 继续"
                     : "▶▶ 试听全部"}
                   <kbd className="text-[8px] opacity-60 ml-0.5">
-                    {player.status === "idle" ? "⇧P" : ""}
+                    {playbackScope === "all" && player.status !== "idle" ? "" : "⇧P"}
                   </kbd>
                 </button>
-                {(player.status === "playing" || player.status === "paused") && (
+                {playbackScope === "all" &&
+                  (player.status === "playing" || player.status === "paused") && (
                   <button
-                    onClick={() => player.stop()}
+                    onClick={handleStopPlayback}
                     className="text-[10px] px-1.5 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
                     title="停止播放"
                   >
@@ -992,18 +1015,70 @@ export default function StudioPage() {
                 }}
               />
             </div>
+            {playbackScope === "all" && player.duration > 0 && (
+              <div className="mt-3">
+                <div
+                  className="h-2 bg-zinc-800 rounded-full cursor-pointer overflow-hidden"
+                  title="点击或拖动调整试听全部进度"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const ratio = Math.max(
+                      0,
+                      Math.min(1, (e.clientX - rect.left) / rect.width)
+                    );
+                    player.seek(ratio * player.duration);
+                  }}
+                  onMouseDown={(e) => {
+                    const target = e.currentTarget;
+                    const seekFromClientX = (clientX: number) => {
+                      const rect = target.getBoundingClientRect();
+                      const ratio = Math.max(
+                        0,
+                        Math.min(1, (clientX - rect.left) / rect.width)
+                      );
+                      player.seek(ratio * player.duration);
+                    };
+                    seekFromClientX(e.clientX);
+                    const onMove = (moveEvent: MouseEvent) => {
+                      seekFromClientX(moveEvent.clientX);
+                    };
+                    const onUp = () => {
+                      window.removeEventListener("mousemove", onMove);
+                      window.removeEventListener("mouseup", onUp);
+                    };
+                    window.addEventListener("mousemove", onMove);
+                    window.addEventListener("mouseup", onUp);
+                  }}
+                >
+                  <div
+                    className="h-full bg-cyan-400 transition-all"
+                    style={{
+                      width: `${(player.currentTime / player.duration) * 100}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1 text-[10px] text-zinc-500 font-mono">
+                  <span>
+                    {Math.floor(player.currentTime / 60)}:
+                    {Math.floor(player.currentTime % 60)
+                      .toString()
+                      .padStart(2, "0")}
+                  </span>
+                  <span>
+                    {Math.floor(player.duration / 60)}:
+                    {Math.floor(player.duration % 60)
+                      .toString()
+                      .padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </aside>
       </div>
 
       {/* Settings panel — bottom-left gear button */}
-      <SettingsPanel
-        silenceThreshold={silenceSettings.silenceThreshold}
-        minSilenceDuration={silenceSettings.minSilenceDuration}
-        onSilenceSettingsChange={(silenceThreshold, minSilenceDuration) =>
-          setSilenceSettings({ silenceThreshold, minSilenceDuration })
-        }
-      />
+      <SettingsPanel />
     </div>
   );
 }

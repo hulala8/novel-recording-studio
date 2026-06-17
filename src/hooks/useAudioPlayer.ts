@@ -34,6 +34,7 @@ export function useAudioPlayer() {
   const pauseOffsetRef = useRef<number>(0);
   const gainNodeRef = useRef<GainNode | null>(null);
   const rafRef = useRef<number>(0);
+  const ignoreEndedRef = useRef(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -53,6 +54,19 @@ export function useAudioPlayer() {
     }
     return audioContextRef.current;
   }, [state.volume]);
+
+  const stopCurrentSource = useCallback((ignoreEnded = true) => {
+    if (!sourceRef.current) return;
+    if (ignoreEnded) {
+      ignoreEndedRef.current = true;
+    }
+    try {
+      sourceRef.current.stop();
+    } catch {
+      // Already stopped sources throw in some browsers; safe to ignore.
+    }
+    sourceRef.current = null;
+  }, []);
 
   const loadAudio = useCallback(
     async (blob: Blob) => {
@@ -85,8 +99,8 @@ export function useAudioPlayer() {
     if (!audioBufferRef.current) return;
 
     const ctx = getAudioContext();
-    // Stop any existing source
-    sourceRef.current?.stop();
+    // Stop any existing source without treating it as natural playback end.
+    stopCurrentSource();
 
     const source = ctx.createBufferSource();
     source.buffer = audioBufferRef.current;
@@ -98,6 +112,10 @@ export function useAudioPlayer() {
     startTimeRef.current = ctx.currentTime - pauseOffsetRef.current;
 
     source.onended = () => {
+      if (ignoreEndedRef.current) {
+        ignoreEndedRef.current = false;
+        return;
+      }
       if (pauseOffsetRef.current < (audioBufferRef.current?.duration || 0)) {
         setState((prev) => ({
           ...prev,
@@ -123,21 +141,21 @@ export function useAudioPlayer() {
       rafRef.current = requestAnimationFrame(updateTime);
     };
     rafRef.current = requestAnimationFrame(updateTime);
-  }, [getAudioContext, state.playbackRate]);
+  }, [getAudioContext, state.playbackRate, stopCurrentSource]);
 
   const pause = useCallback(() => {
     if (state.status !== "playing") return;
 
-    sourceRef.current?.stop();
+    stopCurrentSource();
     pauseOffsetRef.current +=
       (getAudioContext().currentTime - startTimeRef.current);
     cancelAnimationFrame(rafRef.current);
 
     setState((prev) => ({ ...prev, status: "paused" }));
-  }, [state.status, getAudioContext]);
+  }, [state.status, getAudioContext, stopCurrentSource]);
 
   const stop = useCallback(() => {
-    sourceRef.current?.stop();
+    stopCurrentSource();
     pauseOffsetRef.current = 0;
     cancelAnimationFrame(rafRef.current);
 
@@ -146,7 +164,7 @@ export function useAudioPlayer() {
       status: "idle",
       currentTime: 0,
     }));
-  }, []);
+  }, [stopCurrentSource]);
 
   const seek = useCallback(
     (time: number) => {
@@ -158,7 +176,7 @@ export function useAudioPlayer() {
 
       if (state.status === "playing") {
         // Restart from new position
-        sourceRef.current?.stop();
+        stopCurrentSource();
         const ctx = getAudioContext();
         const source = ctx.createBufferSource();
         source.buffer = audioBufferRef.current!;
@@ -168,9 +186,22 @@ export function useAudioPlayer() {
         sourceRef.current = source;
         startTimeRef.current =
           ctx.currentTime - pauseOffsetRef.current;
+        source.onended = () => {
+          if (ignoreEndedRef.current) {
+            ignoreEndedRef.current = false;
+            return;
+          }
+          setState((prev) => ({
+            ...prev,
+            status: "idle",
+            currentTime: 0,
+          }));
+          pauseOffsetRef.current = 0;
+          cancelAnimationFrame(rafRef.current);
+        };
       }
     },
-    [state.status, state.playbackRate, getAudioContext]
+    [state.status, state.playbackRate, getAudioContext, stopCurrentSource]
   );
 
   const setPlaybackRate = useCallback(

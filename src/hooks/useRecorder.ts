@@ -28,19 +28,40 @@ export function useRecorder() {
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const startRecording = useCallback(async () => {
-    try {
-      chunksRef.current = [];
+  const requestMicrophoneStream = useCallback(async () => {
+    const voiceMicConstraints: MediaTrackConstraints = {
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: voiceMicConstraints,
+      });
+    } catch (err) {
+      console.warn(
+        "[Recorder] Preferred USB mic constraints failed, retrying with basic mono input.",
+        err
+      );
+      return navigator.mediaDevices.getUserMedia({
         audio: {
-          channelCount: 1,
-          sampleRate: 44100,
+          channelCount: { ideal: 1 },
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
         },
       });
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      chunksRef.current = [];
+
+      const stream = await requestMicrophoneStream();
       streamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -116,7 +137,7 @@ export function useRecorder() {
         error: message,
       });
     }
-  }, []);
+  }, [requestMicrophoneStream]);
 
   const pauseRecording = useCallback(() => {
     if (
@@ -187,26 +208,6 @@ export function useRecorder() {
     }));
   }, []);
 
-  const stripSilence = useCallback(
-    async (options?: {
-      silenceThreshold?: number;
-      minSilenceDuration?: number;
-    }) => {
-      const blob = state.audioBlob;
-      if (!blob) return;
-      try {
-        const { stripSilence: strip } = await import("@/lib/audio-utils");
-        const newBlob = await strip(blob, options);
-        const { getAudioDuration } = await import("@/lib/audio-utils");
-        const newDuration = await getAudioDuration(newBlob);
-        replaceBlob(newBlob, newDuration);
-      } catch (err) {
-        console.error("stripSilence failed:", err);
-      }
-    },
-    [state.audioBlob, replaceBlob]
-  );
-
   return {
     ...state,
     startRecording,
@@ -215,6 +216,5 @@ export function useRecorder() {
     stopRecording,
     resetRecording,
     replaceBlob,
-    stripSilence,
   };
 }

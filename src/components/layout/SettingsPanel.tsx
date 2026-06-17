@@ -2,20 +2,8 @@
 
 import { useState, useEffect } from "react";
 
-interface SettingsPanelProps {
-  silenceThreshold?: number;
-  minSilenceDuration?: number;
-  onSilenceSettingsChange?: (threshold: number, duration: number) => void;
-}
-
-export default function SettingsPanel({
-  silenceThreshold = 0.015,
-  minSilenceDuration = 0.8,
-  onSilenceSettingsChange,
-}: SettingsPanelProps) {
+export default function SettingsPanel() {
   const [open, setOpen] = useState(false);
-  const [threshold, setThreshold] = useState(silenceThreshold);
-  const [minDuration, setMinDuration] = useState(minSilenceDuration);
 
   // Electron env status
   const [envStatus, setEnvStatus] = useState<{
@@ -102,71 +90,8 @@ export default function SettingsPanel({
               </div>
             )}
 
-            {/* Silence detection settings */}
-            <div className="space-y-4">
-              <p className="text-xs font-medium text-zinc-400 border-b border-zinc-800 pb-1">
-                🔇 去除空白灵敏度
-              </p>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] text-zinc-400">
-                    静音阈值
-                  </label>
-                  <span className="text-[11px] text-zinc-500 font-mono">
-                    {threshold.toFixed(3)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.005}
-                  max={0.05}
-                  step={0.001}
-                  value={threshold}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setThreshold(v);
-                    onSilenceSettingsChange?.(v, minDuration);
-                  }}
-                  className="w-full h-1 accent-blue-500"
-                />
-                <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
-                  <span>更敏感</span>
-                  <span>更宽松</span>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] text-zinc-400">
-                    最短静音长度
-                  </label>
-                  <span className="text-[11px] text-zinc-500 font-mono">
-                    {minDuration.toFixed(1)}秒
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0.2}
-                  max={2.0}
-                  step={0.1}
-                  value={minDuration}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setMinDuration(v);
-                    onSilenceSettingsChange?.(threshold, v);
-                  }}
-                  className="w-full h-1 accent-blue-500"
-                />
-                <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
-                  <span>0.2秒</span>
-                  <span>2.0秒</span>
-                </div>
-              </div>
-            </div>
-
             {/* Keyboard shortcuts reference */}
-            <div className="mt-4 pt-3 border-t border-zinc-800">
+            <div className={isElectron ? "mt-4 pt-3 border-t border-zinc-800" : ""}>
               <p className="text-xs font-medium text-zinc-400 mb-2">
                 ⌨ 快捷键参考
               </p>
@@ -183,7 +108,6 @@ export default function SettingsPanel({
                   ["P", "试听当前段 / 暂停"],
                   ["⇧ + P", "试听全部 / 暂停"],
                   // 编辑
-                  ["B", "去除录音空白"],
                   ["S", "拆分长段落"],
                   ["A", "自动滚动（提词器）"],
                   // 波形选区

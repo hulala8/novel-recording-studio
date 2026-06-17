@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import type { Segment, Role, RecordingStatus } from "@/lib/types";
+import type { RoleProgress, Segment, Role, RecordingStatus } from "@/lib/types";
 import TrackWaveform from "@/components/recording/TrackWaveform";
 
 interface TeleprompterState {
@@ -26,10 +26,6 @@ interface RecorderState {
   resumeRecording: () => void;
   stopRecording: () => void;
   resetRecording: () => void;
-  stripSilence?: (options?: {
-    silenceThreshold?: number;
-    minSilenceDuration?: number;
-  }) => Promise<void>;
 }
 
 interface TeleprompterProps {
@@ -49,10 +45,6 @@ interface TeleprompterProps {
   onCut?: (start: number, end: number) => void;
   onTrim?: (start: number, end: number) => void;
   onSplit?: () => void;
-  silenceSettings?: {
-    silenceThreshold: number;
-    minSilenceDuration: number;
-  };
   // Saved recording waveform
   recordedBlob?: Blob | null;
   recordedDuration?: number;
@@ -62,6 +54,7 @@ interface TeleprompterProps {
   /** Role filter: only navigate/record segments of this role */
   roleFilter?: string | null;
   onRoleFilterChange?: (roleId: string | null) => void;
+  progressByRole?: Record<string, RoleProgress>;
   /** Filtered navigation callbacks */
   onNextFiltered?: () => void;
   onPrevFiltered?: () => void;
@@ -86,13 +79,13 @@ export default function Teleprompter({
   onCut,
   onTrim,
   onSplit,
-  silenceSettings,
   recordedBlob,
   recordedDuration = 0,
   onPlaySaved,
   onSeek,
   roleFilter,
   onRoleFilterChange,
+  progressByRole = {},
   onNextFiltered,
   onPrevFiltered,
   autoTrimStart,
@@ -198,22 +191,6 @@ export default function Teleprompter({
           <kbd className="ml-1 text-[8px] opacity-60">A</kbd>
         </button>
 
-        {/* Role filter */}
-        {onRoleFilterChange && (
-          <select
-            value={roleFilter || ""}
-            onChange={(e) => onRoleFilterChange(e.target.value || null)}
-            className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-300"
-            title="只录制选中角色的段落"
-          >
-            <option value="">🎭 全部</option>
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                🎤 {r.name}
-              </option>
-            ))}
-          </select>
-        )}
         {roleFilter && (
           <span className="text-[9px] text-yellow-400 font-medium">
             仅 {roles.find(r => r.id === roleFilter)?.name || ""}
@@ -247,44 +224,109 @@ export default function Teleprompter({
         </button>
       </div>
 
-      {/* ======== Scrollable content ======== */}
-      <div ref={containerRef} className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="max-w-3xl mx-auto space-y-6 pb-40">
-          {segments.map((seg, i) => {
-            const isActive = i === activeSegmentIndex;
-            const color = roleColors[seg.roleId] || "#a1a1aa";
+      {/* ======== Content area ======== */}
+      <div className="flex-1 flex min-h-0">
+        {onRoleFilterChange && (
+          <aside className="w-48 border-r border-zinc-800 bg-zinc-950/80 px-3 py-4 overflow-y-auto shrink-0">
+            <p className="text-[10px] font-bold text-zinc-500 mb-2">配音角色</p>
+            <button
+              onClick={() => onRoleFilterChange(null)}
+              className={`w-full mb-2 rounded-md border px-2 py-2 text-left text-xs transition-colors ${
+                roleFilter
+                  ? "border-zinc-800 bg-zinc-900 hover:border-zinc-700 text-zinc-300"
+                  : "border-blue-500 bg-blue-500/10 text-white"
+              }`}
+            >
+              全部角色
+            </button>
+            <div className="space-y-1.5">
+              {roles.map((role) => {
+                const progress = progressByRole[role.id] || {
+                  roleId: role.id,
+                  total: 0,
+                  recorded: 0,
+                };
+                const percent =
+                  progress.total > 0
+                    ? Math.round((progress.recorded / progress.total) * 100)
+                    : 0;
 
-            return (
-              <div
-                key={seg.id}
-                id={`tele-segment-${i}`}
-                className={`transition-all duration-300 rounded-xl p-5 cursor-pointer ${
-                  isActive
-                    ? "bg-blue-500/10 border-2 border-blue-500/50 scale-[1.02] shadow-lg shadow-blue-500/10"
-                    : "opacity-25 hover:opacity-50 border-2 border-transparent"
-                }`}
-                onClick={() => onSelectSegment(i)}
-              >
-                <span
-                  className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold mb-2.5"
-                  style={{ backgroundColor: color + "30", color }}
+                return (
+                  <button
+                    key={role.id}
+                    onClick={() =>
+                      onRoleFilterChange(roleFilter === role.id ? null : role.id)
+                    }
+                    className={`w-full rounded-md border p-2 text-left transition-colors ${
+                      roleFilter === role.id
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: role.color }}
+                      />
+                      <span className="truncate text-zinc-200 flex-1">
+                        {role.name}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 tabular-nums">
+                        {progress.recorded}/{progress.total}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${percent}%`, backgroundColor: role.color }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+        )}
+
+        {/* ======== Scrollable content ======== */}
+        <div ref={containerRef} className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="max-w-3xl mx-auto space-y-6 pb-40">
+            {segments.map((seg, i) => {
+              const isActive = i === activeSegmentIndex;
+              const color = roleColors[seg.roleId] || "#a1a1aa";
+
+              return (
+                <div
+                  key={seg.id}
+                  id={`tele-segment-${i}`}
+                  className={`transition-all duration-300 rounded-xl p-5 cursor-pointer ${
+                    isActive
+                      ? "bg-blue-500/10 border-2 border-blue-500/50 scale-[1.02] shadow-lg shadow-blue-500/10"
+                      : "opacity-25 hover:opacity-50 border-2 border-transparent"
+                  }`}
+                  onClick={() => onSelectSegment(i)}
                 >
-                  {seg.roleName}
-                </span>
-                <p
-                  className="leading-relaxed font-medium"
-                  style={{ fontSize: `${fontSize}px` }}
-                >
-                  {seg.text}
-                </p>
-                {seg.recordingId && (
-                  <span className="text-[11px] text-green-500 mt-2 inline-block">
-                    ✓ 已录制
+                  <span
+                    className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold mb-2.5"
+                    style={{ backgroundColor: color + "30", color }}
+                  >
+                    {seg.roleName}
                   </span>
-                )}
-              </div>
-            );
-          })}
+                  <p
+                    className="leading-relaxed font-medium"
+                    style={{ fontSize: `${fontSize}px` }}
+                  >
+                    {seg.text}
+                  </p>
+                  {seg.recordingId && (
+                    <span className="text-[11px] text-green-500 mt-2 inline-block">
+                      ✓ 已录制
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -316,17 +358,6 @@ export default function Teleprompter({
                 >
                   {isPlaying ? "⏸ 暂停试听" : "▶ 试听"}
                   <kbd className="ml-1 text-[8px] opacity-60">P</kbd>
-                </button>
-              )}
-              {/* Strip silence (only for new recordings) */}
-              {recorder.status === "stopped" && recorder.audioBlob && recorder.stripSilence && (
-                <button
-                  onClick={() => recorder.stripSilence!(silenceSettings)}
-                  className="px-3 py-1 text-[11px] bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
-                  title="自动检测并去除录音中的静音空白片段 (B)"
-                >
-                  🔇 去空白
-                  <kbd className="ml-1 text-[8px] opacity-60">B</kbd>
                 </button>
               )}
             </div>
@@ -492,7 +523,7 @@ export default function Teleprompter({
           {recorder.status === "idle" && "Space 开始 · P 试听 · A 滚动"}
           {recorder.status === "recording" && "● 录制中 · Space 停止"}
           {recorder.status === "paused" && "⏸ 已暂停 · Space 继续"}
-          {recorder.status === "stopped" && "Enter 保存 · P 试听 · B 去空白 · ^R 重录"}
+          {recorder.status === "stopped" && "Enter 保存 · P 试听 · ^R 重录"}
         </span>
       </div>
     </div>
