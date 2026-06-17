@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import {
   useProjects,
@@ -60,6 +60,7 @@ export default function StudioPage() {
   const recorder = useRecorder();
   const player = useAudioPlayer();
   const teleprompter = useTeleprompter();
+  const loadedSegmentBlobRef = useRef<Blob | null>(null);
 
   // Saved recording blob for waveform display
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -275,7 +276,9 @@ export default function StudioPage() {
 
   // Stop playback when switching segments
   useEffect(() => {
-    if (player.status === "playing") player.stop();
+    player.stop();
+    loadedSegmentBlobRef.current = null;
+    queueMicrotask(() => setPlaybackScope(null));
   }, [activeSegmentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Save recording (after optional auto-trim) ----
@@ -342,6 +345,9 @@ export default function StudioPage() {
       const newDuration = endTime - startTime;
       if (recorder.audioBlob) {
         recorder.replaceBlob(trimmed, newDuration);
+        loadedSegmentBlobRef.current = trimmed;
+        setPlaybackScope("segment");
+        await player.loadAudio(trimmed);
       } else if (activeSegment?.recordingId) {
         const { saveRecording } = await import("@/lib/db");
         const newRecording = {
@@ -355,9 +361,12 @@ export default function StudioPage() {
         await updateSegment({ ...activeSegment, recordingId: newRecording.id });
         setRecordedBlob(trimmed);
         setRecordedDuration(newDuration);
+        loadedSegmentBlobRef.current = trimmed;
+        setPlaybackScope("segment");
+        await player.loadAudio(trimmed);
       }
     },
-    [recorder, recordedBlob, activeSegment, updateSegment]
+    [recorder, recordedBlob, activeSegment, updateSegment, player]
   );
 
   // ---- Handle waveform middle-cut ----
@@ -399,6 +408,9 @@ export default function StudioPage() {
 
       if (recorder.audioBlob) {
         recorder.replaceBlob(merged, newDuration);
+        loadedSegmentBlobRef.current = merged;
+        setPlaybackScope("segment");
+        await player.loadAudio(merged);
       } else if (activeSegment?.recordingId) {
         const { saveRecording } = await import("@/lib/db");
         const newRecording = {
@@ -415,13 +427,16 @@ export default function StudioPage() {
         });
         setRecordedBlob(merged);
         setRecordedDuration(newDuration);
+        loadedSegmentBlobRef.current = merged;
+        setPlaybackScope("segment");
+        await player.loadAudio(merged);
       }
     },
     [
       recorder,
       recordedBlob,
       activeSegment,
-      player.duration,
+      player,
       updateSegment,
     ]
   );
@@ -487,6 +502,7 @@ export default function StudioPage() {
     if (rec) {
       setPlaybackScope("segment");
       await player.loadAudio(rec.audioBlob);
+      loadedSegmentBlobRef.current = rec.audioBlob;
       player.play();
     }
   }, [activeSegment, player]);
@@ -496,6 +512,7 @@ export default function StudioPage() {
     if (recorder.audioBlob) {
       setPlaybackScope("segment");
       await player.loadAudio(recorder.audioBlob);
+      loadedSegmentBlobRef.current = recorder.audioBlob;
       player.play();
       return;
     }
@@ -503,6 +520,7 @@ export default function StudioPage() {
     if (recordedBlob) {
       setPlaybackScope("segment");
       await player.loadAudio(recordedBlob);
+      loadedSegmentBlobRef.current = recordedBlob;
       player.play();
       return;
     }
@@ -511,18 +529,37 @@ export default function StudioPage() {
   }, [handlePlaySegment, player, recorder.audioBlob, recordedBlob]);
 
   const handleToggleCurrentPlayback = useCallback(async () => {
+    const latestSegmentBlob = recorder.audioBlob || recordedBlob;
+    const loadedBlobIsCurrent =
+      latestSegmentBlob == null ||
+      loadedSegmentBlobRef.current === latestSegmentBlob;
+
     if (player.status === "playing") {
       player.pause();
       return;
     }
 
-    if (player.status === "paused" && playbackScope === "segment") {
+    if (
+      player.status === "paused" &&
+      playbackScope === "segment" &&
+      loadedBlobIsCurrent
+    ) {
+      player.play();
+      return;
+    }
+
+    if (
+      player.status === "idle" &&
+      playbackScope === "segment" &&
+      latestSegmentBlob &&
+      loadedBlobIsCurrent
+    ) {
       player.play();
       return;
     }
 
     await handlePlayCurrent();
-  }, [handlePlayCurrent, playbackScope, player]);
+  }, [handlePlayCurrent, playbackScope, player, recorder.audioBlob, recordedBlob]);
 
   // ---- Seek (waveform click-to-position) ----
   const handleSeek = useCallback(
