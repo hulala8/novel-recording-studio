@@ -366,7 +366,6 @@ export default function Teleprompter({
             audioBlob={waveBlob}
             duration={waveDuration}
             currentTime={playerCurrentTime}
-            isPlaying={isPlaying}
             onTrim={onTrim}
             onCut={onCut}
             onSeek={onSeek}

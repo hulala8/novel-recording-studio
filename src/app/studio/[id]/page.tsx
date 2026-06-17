@@ -491,6 +491,25 @@ export default function StudioPage() {
     }
   }, [activeSegment, player]);
 
+  // Prefer the newest unsaved draft; fall back to saved recording.
+  const handlePlayCurrent = useCallback(async () => {
+    if (recorder.audioBlob) {
+      setPlaybackScope("segment");
+      await player.loadAudio(recorder.audioBlob);
+      player.play();
+      return;
+    }
+
+    if (recordedBlob) {
+      setPlaybackScope("segment");
+      await player.loadAudio(recordedBlob);
+      player.play();
+      return;
+    }
+
+    await handlePlaySegment();
+  }, [handlePlaySegment, player, recorder.audioBlob, recordedBlob]);
+
   // ---- Preview recording (just recorded, not saved yet) ----
   const handlePreviewRecording = useCallback(async () => {
     if (!recorder.audioBlob) return;
@@ -625,12 +644,8 @@ export default function StudioPage() {
       p: () => {
         if (player.status === "playing") {
           player.pause();
-        } else if (activeSegment?.recordingId) {
-          handlePlaySegment();
-        } else if (recorder.audioBlob) {
-          handlePreviewRecording();
-        } else if (recordedBlob) {
-          handlePlaySaved();
+        } else {
+          handlePlayCurrent();
         }
       },
       s: () => {
@@ -860,7 +875,6 @@ export default function StudioPage() {
                 audioBlob={recorder.audioBlob}
                 duration={recorder.duration}
                 currentTime={player.currentTime}
-                isPlaying={player.status === "playing"}
                 onTrim={handleTrim}
                 onCut={handleCut}
                 onSeek={handleSeek}
@@ -893,7 +907,6 @@ export default function StudioPage() {
                   audioBlob={recordedBlob}
                   duration={recordedDuration}
                   currentTime={player.currentTime}
-                  isPlaying={player.status === "playing"}
                   onTrim={handleTrim}
                   onCut={handleCut}
                   onSeek={handleSeek}
@@ -941,11 +954,7 @@ export default function StudioPage() {
                 !!activeSegment?.recordingId ||
                 !!recorder.audioBlob
               }
-              onPlay={
-                activeSegment?.recordingId
-                  ? handlePlaySegment
-                  : handlePreviewRecording
-              }
+              onPlay={handlePlayCurrent}
             />
           </div>
 

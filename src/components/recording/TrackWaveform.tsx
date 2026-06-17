@@ -12,7 +12,6 @@ interface TrackWaveformProps {
   /** Called when user single-clicks to position playhead */
   onSeek?: (time: number) => void;
   currentTime?: number;
-  isPlaying?: boolean;
   /** Automatically-marked trim region (e.g. auto-trim start noise) */
   autoTrimStart?: number;
   autoTrimEnd?: number;
@@ -67,7 +66,6 @@ export default function TrackWaveform({
   onCut,
   onSeek,
   currentTime = 0,
-  isPlaying = false,
   autoTrimStart,
   autoTrimEnd,
 }: TrackWaveformProps) {
@@ -283,8 +281,9 @@ export default function TrackWaveform({
     }
 
     // ---- Playhead ----
-    if (duration > 0 && (isPlaying || currentTime > 0)) {
-      const px = drawX + (currentTime / duration) * drawW;
+    if (duration > 0) {
+      const safeCurrentTime = Math.max(0, Math.min(currentTime, duration));
+      const px = drawX + (safeCurrentTime / duration) * drawW;
       ctx.fillStyle = "#EF4444";
       ctx.beginPath();
       ctx.moveTo(px - 5 * dpr, 2 * dpr);
@@ -334,7 +333,6 @@ export default function TrackWaveform({
     selStart,
     selEnd,
     currentTime,
-    isPlaying,
     duration,
     loading,
     autoTrimStart,
