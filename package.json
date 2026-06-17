@@ -9,9 +9,10 @@
     "start": "next start",
     "lint": "eslint",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && env -u ELECTRON_RUN_AS_NODE electron .\"",
-    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:mac": "npm run build && electron-builder --mac && npm run electron:sign:mac",
     "electron:build:win": "npm run build && electron-builder --win",
-    "electron:start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron ."
+    "electron:start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
+    "electron:sign:mac": "node scripts/sign-mac-app.js"
   },
   "dependencies": {
     "idb": "^8.0.3",

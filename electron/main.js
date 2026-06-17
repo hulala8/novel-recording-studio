@@ -18,6 +18,19 @@ let mainWindow = null;
 let nextApp = null;
 let nextServer = null;
 
+function logStartup(message, error) {
+  const line = `${new Date().toISOString()} ${message}${
+    error ? `\n${error.stack || error.message || error}` : ""
+  }\n`;
+  console.log(message, error || "");
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.appendFileSync(path.join(CONFIG_DIR, "startup.log"), line);
+  } catch {
+    // Logging should never block app startup.
+  }
+}
+
 // -------- Environment variable loading --------
 
 function parseDotEnv(filePath) {
@@ -52,7 +65,7 @@ function loadConfig() {
 
 function startNextServer(envVars) {
   return new Promise(async (resolve, reject) => {
-    console.log(`[Electron] Starting Next.js on port ${NEXT_PORT}...`);
+    logStartup(`[Electron] Starting Next.js on port ${NEXT_PORT}...`);
 
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -69,8 +82,10 @@ function startNextServer(envVars) {
 
     // The app directory (where .next/ and node_modules/ live)
     // __dirname is inside app.asar when packaged, so .. always goes to the right place
-    const appDir = path.join(__dirname, "..");
-    console.log(`[Electron] App dir: ${appDir} (packaged: ${app.isPackaged})`);
+    const appDir = app.isPackaged
+      ? path.join(process.resourcesPath, "app.asar")
+      : path.join(__dirname, "..");
+    logStartup(`[Electron] App dir: ${appDir} (packaged: ${app.isPackaged})`);
 
     try {
       // Use Next.js programmatic API — works inside ASAR because require() + fs reads are allowed
@@ -90,16 +105,16 @@ function startNextServer(envVars) {
       });
 
       nextServer.listen(NEXT_PORT, () => {
-        console.log(`[Electron] Next.js server is ready on port ${NEXT_PORT}`);
+        logStartup(`[Electron] Next.js server is ready on port ${NEXT_PORT}`);
         resolve();
       });
 
       nextServer.on("error", (err) => {
-        console.error(`[Electron] Next.js server error:`, err);
+        logStartup("[Electron] Next.js server error:", err);
         reject(err);
       });
     } catch (err) {
-      console.error(`[Electron] Failed to start Next.js:`, err);
+      logStartup("[Electron] Failed to start Next.js:", err);
       reject(err);
     }
   });
@@ -107,7 +122,7 @@ function startNextServer(envVars) {
 
 function stopNextServer() {
   if (nextServer) {
-    console.log("[Electron] Stopping Next.js server...");
+    logStartup("[Electron] Stopping Next.js server...");
     nextServer.close();
     nextServer = null;
     nextApp = null;
@@ -119,7 +134,7 @@ function stopNextServer() {
 function setupPermissions() {
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback, details) => {
-      console.log(`[Electron] Permission requested: ${permission}`, details);
+    logStartup(`[Electron] Permission requested: ${permission} ${JSON.stringify(details)}`);
 
       const allowedPermissions = [
         "media",
@@ -129,12 +144,12 @@ function setupPermissions() {
       if (allowedPermissions.includes(permission)) {
         if (permission === "media") {
           if (details.mediaTypes?.includes("audio")) {
-            console.log("[Electron] Granting microphone permission");
+            logStartup("[Electron] Granting microphone permission");
             callback(true);
             return;
           }
           if (details.mediaTypes?.includes("video")) {
-            console.log("[Electron] Denying camera permission");
+            logStartup("[Electron] Denying camera permission");
             callback(false);
             return;
           }
@@ -149,7 +164,7 @@ function setupPermissions() {
 
   session.defaultSession.setDevicePermissionHandler((details) => {
     if (details.deviceType === "media" && details.origin) {
-      console.log("[Electron] Granting media device access");
+      logStartup("[Electron] Granting media device access");
       return true;
     }
     return false;
@@ -212,7 +227,7 @@ app.whenReady().then(async () => {
     await startNextServer(envVars);
     createWindow();
   } catch (err) {
-    console.error("[Electron] Startup failed:", err);
+    logStartup("[Electron] Startup failed:", err);
     dialog.showErrorBox(
       "启动失败",
       `无法启动应用服务器：\n${err.message}\n\n请检查端口 ${NEXT_PORT} 是否被占用。`
