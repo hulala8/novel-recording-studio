@@ -220,7 +220,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    title: "小说录音工作室",
+    title: `小说录音工作室 v${app.getVersion()}`,
     backgroundColor: "#09090b",
     webPreferences: {
       nodeIntegration: false,
