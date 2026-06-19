@@ -229,11 +229,47 @@ export function extractBracketNames(text: string): string[] {
 }
 
 /**
- * Extract potential character names using speech-verb patterns and bracket markers.
+ * Shared validation for a candidate name extracted from text patterns.
+ * Returns true if the string looks like a plausible person name (not a pronoun,
+ * adverb, structural particle, common noun, etc.).
+ */
+function isValidExtractedName(name: string): boolean {
+  if (
+    name.length < 1 ||
+    name.length > 4 ||
+    /^(?:的|了|在|是|和|就|也|都|还|要|会|能|可以|这个|那个|什么|怎么|哪个)$/.test(name) ||
+    /^(?:一下|起来|出来|过来|过去|下来)$/.test(name) ||
+    /^(?:忽然|突然|然后|于是|接着|便|又|再|才|就|已经|曾经|正在)$/.test(name) ||
+    /^(?:轻轻|淡淡|微微|冷冷|慢慢|静静|缓缓|悠悠|悄悄|默默|狠狠|重重)$/.test(name) ||
+    /^(?:轻声|低声|小声|大声|高声|柔声|厉声|沉声|冷声|怒声|笑着|微笑着|大笑着|苦笑着|冷笑着|淡笑着|笑|微笑|大笑|苦笑|冷笑|淡笑)$/.test(name) ||
+    /^(?:压低声音|提高声音|放低声音|头也不抬|头也不回)$/.test(name) ||
+    /^(?:没有|不是|不会|不能|不要|不用|不必)$/.test(name) ||
+    /^(?:抬起头|低下头|转过头|站起身|坐直|站起|坐下)$/.test(name) ||
+    /^(?:街|路|巷|灯|门|窗|墙|楼|屋|房|树|花|草|山|水|河|海|天|地|日|月|星|云|风|雨|雪)$/.test(name) ||
+    /^(?:街道|知道|味道|频道)$/.test(name) ||
+    // Exact pronoun matches
+    /^(?:你|我|他|她|它|你们|我们|他们|她们|它们|有人|别人|这人|那人|某人)$/.test(name) ||
+    // Names starting with pronoun (e.g., "他说", "我在")
+    /^(?:你|我|他|她|它|你们|我们|他们|她们|它们|有人|别人|这人|那人|某人)[一-鿿]+/.test(name) ||
+    // Prepositional/grammatical particles inside a name (e.g., "舅对娘" from "舅对娘说")
+    /[对跟向和给朝冲替为让叫把被]/.test(name) ||
+    // Speech verbs inside the name (e.g., "补了一句" from "补了一句说")
+    /(?:问道|说道|答道|笑道|怒道|叹道|喊道|叫道|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|说|道|问|答|喊|叫|嚷|骂|吼)/.test(name) ||
+    /[的得]/.test(name)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Extract potential character names using speech-verb patterns, bracket markers,
+ * and post-quote positions.
  *
- * Two sources:
+ * Three sources:
  * 1. 【Name-Descriptor】or【Name】bracket markers — direct speaker indicators
  * 2. "XX说/道/问..." speech-verb patterns — XX is a candidate character name
+ * 3. "dialogue"NAME — NAME right after a closing quote (even without speech verb)
  */
 export function extractCharacterNames(text: string): string[] {
   const names = new Set<string>();
@@ -262,29 +298,35 @@ export function extractCharacterNames(text: string): string[] {
     const possibleCompound = name + (verb[0] || "");
     if (SPEECH_VERB_COMPOUNDS.has(possibleCompound)) continue;
 
-    if (
-      name.length >= 1 &&
-      name.length <= 4 &&
-      // Exclude structural particles
-      !/^(?:的|了|在|是|和|就|也|都|还|要|会|能|可以|这个|那个|什么|怎么|哪个)$/.test(name) &&
-      // Exclude directional/complement compounds
-      !/^(?:一下|起来|出来|过来|过去|下来)$/.test(name) &&
-      // Exclude temporal adverbs
-      !/^(?:忽然|突然|然后|于是|接着|便|又|再|才|就|已经|曾经|正在)$/.test(name) &&
-      // Exclude manner adverbs
-      !/^(?:轻轻|淡淡|微微|冷冷|慢慢|静静|缓缓|悠悠|悄悄|默默|狠狠|重重)$/.test(name) &&
-      // Exclude speech-manner adverbials
-      !/^(?:轻声|低声|小声|大声|高声|柔声|厉声|沉声|冷声|怒声|笑着|微笑着|大笑着|苦笑着|冷笑着|淡笑着|笑|微笑|大笑|苦笑|冷笑|淡笑)$/.test(name) &&
-      !/^(?:压低声音|提高声音|放低声音|头也不抬|头也不回)$/.test(name) &&
-      // Exclude negation and auxiliary
-      !/^(?:没有|不是|不会|不能|不要|不用|不必)$/.test(name) &&
-      // Exclude body-part + verb combinations
-      !/^(?:抬起头|低下头|转过头|站起身|坐直|站起|坐下)$/.test(name) &&
-      // Exclude single-char false positives
-      !/^(?:街|路|巷|灯|门|窗|墙|楼|屋|房|树|花|草|山|水|河|海|天|地|日|月|星|云|风|雨|雪)$/.test(name) &&
-      // Exclude common noun compounds
-      !/^(?:街道|知道|味道|频道)$/.test(name)
-    ) {
+    if (isValidExtractedName(name)) {
+      names.add(name);
+    }
+  }
+
+  // Source 3: Names appearing right after a closing quote
+  // Pattern: "dialogue"NAME or "dialogue"NAME — NAME is often the speaker
+  // even when not followed by a speech verb (e.g., "走！"陈九宸咬牙)
+  // Uses {2,3} (not {2,4}) to avoid greedily capturing the first char of an action verb.
+  // Common single-char verbs that follow names (咬, 扯, 盯, 看, etc.) are used to trim
+  // false-positive 3-char captures like "王婶咬" → "王婶".
+  // Quote chars: \\u201c = ", \\u201d = ", \\u0022 = " (ASCII)
+  const POST_NAME_ACTION_CHARS = new Set(
+    "咬牙扯抓看走跑站坐笑哭说问道答喊叫叹骂吼想转抬低回点摇摆挥推拉拍摸指瞪望瞥闭睁吸呼咳嗽吐吞咽颤抖踹踢踩踏跃跳跪趴躺倒冲闯奔飞闪躲藏逃追赶护挡拦扶抱搂握捏掐拧按压砸敲打揍劈砍刺捅割切".split("")
+  );
+  const ALL_QUOTE_CHARS = '"“”';
+  const postQuotePattern = new RegExp(
+    `[${ALL_QUOTE_CHARS}][^${ALL_QUOTE_CHARS}]*?[${ALL_QUOTE_CHARS}]\\s*([一-鿿]{2,3})`,
+    "g"
+  );
+  while ((match = postQuotePattern.exec(text)) !== null) {
+    const chunk = match[1];
+    let name = chunk;
+    // If 3 chars and the last char is a common post-name action verb,
+    // trim to 2 chars — the third char is likely the start of the action
+    if (chunk.length === 3 && POST_NAME_ACTION_CHARS.has(chunk[2])) {
+      name = chunk.slice(0, 2);
+    }
+    if (isValidExtractedName(name)) {
       names.add(name);
     }
   }
@@ -300,6 +342,13 @@ export function ruleBasedRoleAssign(
   characterNames: string[]
 ): { segmentIndex: number; roleName: string }[] {
   let lastSpeaker = "旁白"; // 旁白
+
+  // For pure-dialogue texts (zero narration) with no character names extracted,
+  // use alternating speakers instead of lumping everything under 旁白
+  const hasNarration = segments.some((s) => s.type === "narration");
+  const hasRealNames = characterNames.some((n) => n !== "旁白");
+  const useAlternating = !hasNarration && !hasRealNames;
+  let altToggle = 0;
 
   return segments.map((seg) => {
     // Narration is ALWAYS 旁白
@@ -390,19 +439,33 @@ export function ruleBasedRoleAssign(
               roleName = name;
               break;
             }
+            // Pattern D: NAME at the very start of next narration (no speech verb needed)
+            // Catches cases like "走！"陈九宸咬牙 where 咬牙 is not a speech verb
+            // Uses startsWith instead of regex because the character after the name
+            // could be ANYTHING (action verb, body part, emotion, etc.)
+            if (nextSeg.text.startsWith(name)) {
+              roleName = name;
+              break;
+            }
           }
         }
       }
     }
 
     // 4. Fall back to last known speaker for continued dialogue
-    if (!roleName && lastSpeaker !== "旁白") {
+    // Skip in alternating mode — we want deliberate alternation, not chaining
+    if (!roleName && !useAlternating && lastSpeaker !== "旁白") {
       roleName = lastSpeaker;
     }
 
     // 5. Final fallback
     if (!roleName) {
-      roleName = "旁白";
+      if (useAlternating) {
+        roleName = altToggle % 2 === 0 ? "角色A" : "角色B";
+        altToggle++;
+      } else {
+        roleName = "旁白";
+      }
     }
 
     roleName = normalizeRoleName(roleName);

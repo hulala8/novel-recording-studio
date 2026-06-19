@@ -276,14 +276,201 @@ describe("Full pipeline with bracket patterns", () => {
     expect(names).toContain("刘信");
   });
 
-  it("assigns dialogue to 旁白 when no speaker indicator is found", () => {
+  it("assigns dialogue to alternating speaker in pure-dialogue text with no names", () => {
+    // Pure dialogue, no narration, no real character names — uses alternating speakers
     const segments = [
       { text: `${LQ}今天天气不错。${RQ}`, index: 0, type: "dialogue" as const },
     ];
     const names = ["旁白"];
     const result = ruleBasedRoleAssign(segments, names);
 
-    expect(result[0].roleName).toBe("旁白");
+    expect(result[0].roleName).toBe("角色A");
+  });
+
+  // ============================================================
+  // Post-dialogue speaker attribution (Pattern D) — no speech verb needed
+  // ============================================================
+  describe("Post-dialogue speaker attribution (Pattern D)", () => {
+    it("detects speaker from name at start of following narration without speech verb", () => {
+      // "走！"陈九宸咬牙 — 咬牙 is NOT a speech verb
+      const rawText = `"李叔，撑住！"陈九宸咬牙，想把李老栓背起来。`;
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      // 陈九宸 should be extracted from post-quote position
+      expect(names).toContain("陈九宸");
+
+      const dialogueAssign = assignments.find(
+        (a) => segments[a.segmentIndex]?.type === "dialogue"
+      );
+      expect(dialogueAssign).toBeDefined();
+      expect(dialogueAssign!.roleName).toBe("陈九宸");
+    });
+
+    it("detects speaker even when post-dialogue action is emotional, not verbal", () => {
+      // "我带你回去！"陈九宸眼睛红了。 — 眼睛红了 is not a speech verb
+      const rawText = `"我带你回去！"陈九宸眼睛红了。`;
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      expect(names).toContain("陈九宸");
+
+      const dialogueAssign = assignments.find(
+        (a) => segments[a.segmentIndex]?.type === "dialogue"
+      );
+      expect(dialogueAssign!.roleName).not.toBe("旁白");
+      expect(dialogueAssign!.roleName).toBe("陈九宸");
+    });
+
+    it("detects speaker from complex post-dialogue action", () => {
+      // "回……"李老栓扯了扯嘴角 — 扯了扯嘴角 is not a speech verb
+      const rawText = `"回……回不去了……"李老栓扯了扯嘴角，像是在笑，又像是在哭。`;
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      expect(names).toContain("李老栓");
+
+      const dialogueAssign = assignments.find(
+        (a) => segments[a.segmentIndex]?.type === "dialogue"
+      );
+      expect(dialogueAssign!.roleName).toBe("李老栓");
+    });
+
+    it("still prefers explicit speech-verb patterns over Pattern D", () => {
+      // 李老栓突然开口 — 开口 IS a speech verb
+      const rawText = `"走……"李老栓突然开口，声音小得像蚊子哼。`;
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      expect(names).toContain("李老栓");
+
+      const dialogueAssign = assignments.find(
+        (a) => segments[a.segmentIndex]?.type === "dialogue"
+      );
+      expect(dialogueAssign!.roleName).toBe("李老栓");
+    });
+
+    it("does NOT falsely match when next narration starts with pronoun", () => {
+      // "九宸……"他盯着陈九宸 — starts with 他, not a character name
+      const rawText = `"九宸……"他盯着陈九宸，每个字都用尽全力。`;
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      const dialogueAssign = assignments.find(
+        (a) => segments[a.segmentIndex]?.type === "dialogue"
+      );
+      // Should fall back to 旁白 since "他" is not extracted as a character name
+      expect(dialogueAssign!.roleName).toBe("旁白");
+    });
+
+    it("handles multiple post-dialogue attributions in sequence", () => {
+      const rawText = [
+        `"李叔，撑住！"陈九宸咬牙。`,
+        `"走……"李老栓突然开口。`,
+        `"我带你回去！"陈九宸眼睛红了。`,
+      ].join("\n\n");
+
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      // Both characters should be extracted
+      expect(names).toContain("陈九宸");
+      expect(names).toContain("李老栓");
+
+      // Get dialogue segments and their roles
+      const dialogueSegs = segments.filter((s) => s.type === "dialogue");
+      const dialogueRoles = dialogueSegs.map((ds) => {
+        const a = assignments.find((as) => as.segmentIndex === ds.index);
+        return a?.roleName;
+      });
+
+      expect(dialogueRoles).not.toContain("旁白");
+      expect(dialogueRoles).toContain("陈九宸");
+      expect(dialogueRoles).toContain("李老栓");
+    });
+
+    it("handles user's full text excerpt correctly", () => {
+      const rawText = `眼珠子已经浑了，瞳孔散得老大，可居然还有神智。他盯着陈九宸，嘴唇哆嗦着，想说话，却只吐出几个血泡。
+
+"李叔，撑住！"陈九宸咬牙，想把李老栓背起来。
+
+可李老栓太重了，加上少了条腿，重心不稳。陈九宸试了两次没成功，那些虫子又围上来了，火折子眼看要灭。
+
+"走……"李老栓突然开口，声音小得像蚊子哼，"走……快走……"
+
+"我带你回去！"陈九宸眼睛红了。
+
+"回……回不去了……"李老栓扯了扯嘴角，像是在笑，又像是在哭。他右手突然抬起，死死抓住陈九宸的裤脚，力气大得惊人。`;
+
+      const segments = segmentText(rawText);
+      const names = extractCharacterNames(rawText);
+      const assignments = ruleBasedRoleAssign(segments, names);
+
+      // Characters should be extracted from post-quote positions and speech verbs
+      expect(names).toContain("陈九宸");
+      expect(names).toContain("李老栓");
+
+      // Find all "旁白" dialogue assignments — there should be none or very few
+      const dialogueSegs = segments.filter((s) => s.type === "dialogue");
+      const narrationDialogue = dialogueSegs.filter((ds) => {
+        const a = assignments.find((as) => as.segmentIndex === ds.index);
+        return a?.roleName === "旁白";
+      });
+
+      // At most 1-2 dialogues should fall back to 旁白 (the ones with "他" attribution)
+      expect(narrationDialogue.length).toBeLessThanOrEqual(2);
+
+      // Most dialogues should have real character names
+      const named = dialogueSegs.filter((ds) => {
+        const a = assignments.find((as) => as.segmentIndex === ds.index);
+        return a?.roleName !== "旁白";
+      });
+      expect(named.length).toBeGreaterThanOrEqual(dialogueSegs.length - 2);
+    });
+  });
+
+  // ============================================================
+  // Post-quote name extraction (Source 3 in extractCharacterNames)
+  // ============================================================
+  describe("extractCharacterNames - post-quote names", () => {
+    it("extracts name appearing right after ASCII closing quote", () => {
+      const text = `"你好。"陈九宸咬牙。`;
+      const names = extractCharacterNames(text);
+      expect(names).toContain("陈九宸");
+    });
+
+    it("extracts name appearing right after Chinese closing quote", () => {
+      const text = `${LQ}你好。${RQ}李老栓扯了扯嘴角。`;
+      const names = extractCharacterNames(text);
+      expect(names).toContain("李老栓");
+    });
+
+    it("does NOT extract pronouns from post-quote position", () => {
+      const text = `"你好。"他说。`;
+      const names = extractCharacterNames(text);
+      expect(names).not.toContain("他说");
+      expect(names).not.toContain("他");
+    });
+
+    it("does NOT extract common words from post-quote position", () => {
+      const text = `"你好。"突然有人来了。`;
+      const names = extractCharacterNames(text);
+      expect(names).not.toContain("突然");
+      expect(names).not.toContain("有人");
+    });
+
+    it("extracts names alongside speech-verb names and bracket names", () => {
+      const text = `"李叔，撑住！"陈九宸咬牙。李老栓喊道："走！"`;
+      const names = extractCharacterNames(text);
+      expect(names).toContain("陈九宸"); // post-quote
+      expect(names).toContain("李老栓"); // speech-verb (喊道)
+    });
   });
 
   it("continuous dialogue after bracket speaker works correctly", () => {

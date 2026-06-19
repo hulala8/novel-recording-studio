@@ -9,7 +9,6 @@ interface ElectronAPI {
 }
 
 interface EnvStatus {
-  deepseekConfigured: boolean;
   configPath: string;
   configDirExists: boolean;
   configFileExists: boolean;

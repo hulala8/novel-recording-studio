@@ -255,7 +255,8 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
 
   // -------- Computed stats --------
   // Type metadata is not stored after review conversion, so use quotes as a heuristic.
-  const dialogueLike = (text: string) => /[""「」『』]/.test(text);
+  // Match Chinese curly quotes, corner brackets, AND ASCII straight double quotes
+  const dialogueLike = (text: string) => /[""「」『』"“”]/.test(text);
   const unlabeledSegments = segments.filter(
     (s) => dialogueLike(s.text) && s.roleName === "旁白"
   );
@@ -399,16 +400,24 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
                 )}
                 <span className="opacity-60">({count})</span>
                 {r.name !== "旁白" && (
-                  <button
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteRole(r.id, r.name);
                     }}
-                    className="ml-0.5 hover:bg-white/10 rounded-full w-3.5 h-3.5 flex items-center justify-center text-[10px]"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        handleDeleteRole(r.id, r.name);
+                      }
+                    }}
+                    className="ml-0.5 hover:bg-white/10 rounded-full w-3.5 h-3.5 flex items-center justify-center text-[10px] cursor-pointer"
                     title="删除角色"
                   >
                     ×
-                  </button>
+                  </span>
                 )}
               </button>
             );

@@ -296,8 +296,8 @@ const POST_DIALOGUE_SPEECH_VERBS =
 
 /**
  * Force-correct AI results using post-dialogue speaker attribution patterns.
- * When narration AFTER a dialogue starts with "NAME说", "是NAME", or "NAME的声音",
- * the preceding dialogue belongs to that NAME.
+ * When narration AFTER a dialogue starts with "NAME说", "是NAME", "NAME的声音",
+ * or simply "NAME" (even without a speech verb), the preceding dialogue belongs to that NAME.
  */
 function forcePostDialogueMarkers(
   segments: RawSegment[],
@@ -310,6 +310,28 @@ function forcePostDialogueMarkers(
   const roleMap = new Map(segmentRoles.map((sr) => [sr.segmentIndex, sr.roleName]));
   const extraRoles = new Map<string, { name: string; color: string }>();
   const characterNames = roles.map((r) => r.name);
+
+  // Also extract names from post-quote positions in segments
+  // (catches names that only appear after dialogue without speech verbs, e.g., "走！"陈九宸咬牙)
+  const postQuoteNameRe = /[""][^""]*?[""]\s*([一-鿿]{2,4})/g;
+  const postQuoteNames = new Set<string>();
+  for (const seg of segments) {
+    let m: RegExpExecArray | null;
+    while ((m = postQuoteNameRe.exec(seg.text)) !== null) {
+      const n = m[1].trim();
+      // Basic validation: not a pronoun, not a common non-name word
+      if (
+        n.length >= 2 &&
+        n.length <= 4 &&
+        !/^(?:你|我|他|她|它|你们|我们|他们|她们|它们|有人|别人|这人|那人|某人)$/.test(n) &&
+        !/^(?:的|了|在|是|和|就|也|都|还|要|会|能|这个|那个|什么|怎么|哪个|忽然|突然|然后|于是|接着|已经|曾经|正在|没有|不是|不会|不能|不要)$/.test(n) &&
+        !/^(?:轻轻|淡淡|微微|冷冷|慢慢|静静|悄悄|默默|狠狠)$/.test(n) &&
+        !/[的得]/.test(n)
+      ) {
+        postQuoteNames.add(n);
+      }
+    }
+  }
 
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i];
@@ -343,6 +365,30 @@ function forcePostDialogueMarkers(
       ) {
         roleMap.set(seg.index, name);
         break;
+      }
+      // Pattern D: NAME at the very start of next narration (no speech verb needed)
+      // Catches cases like "走！"陈九宸咬牙 where 咬牙 is not a speech verb
+      if (nextSeg.text.startsWith(name)) {
+        roleMap.set(seg.index, name);
+        break;
+      }
+    }
+
+    // If no known character name matched, try post-quote extracted names
+    if ((!roleMap.get(seg.index) || roleMap.get(seg.index) === "旁白") && postQuoteNames.size > 0) {
+      for (const name of postQuoteNames) {
+        if (characterNames.includes(name)) continue; // Already checked above
+        if (name === "旁白") continue;
+
+        if (
+          new RegExp(`^${name}\\s*${POST_DIALOGUE_SPEECH_VERBS}`).test(nextSeg.text) ||
+          nextSeg.text.startsWith(name)
+        ) {
+          roleMap.set(seg.index, name);
+          // Add this new name to characterNames so subsequent segments can match it
+          characterNames.push(name);
+          break;
+        }
       }
     }
 

@@ -20,6 +20,7 @@ import PlaybackBar from "@/components/playback/PlaybackBar";
 import Teleprompter from "@/components/text/Teleprompter";
 import TextViewer from "@/components/text/TextViewer";
 import RoleEditor from "@/components/text/RoleEditor";
+import QuickFixPanel from "@/components/text/QuickFixPanel";
 import ChapterList from "@/components/chapters/ChapterList";
 import ExportPanel from "@/components/export/ExportPanel";
 import SettingsPanel from "@/components/layout/SettingsPanel";
@@ -807,6 +808,17 @@ export default function StudioPage() {
               onRoleSelect={handleRoleFilterChange}
               onRolesChanged={setRoles}
               onRoleAssignmentsChanged={loadSegments}
+            />
+            <QuickFixPanel
+              segments={segments}
+              roles={roles}
+              onRoleChange={async (segmentId, roleId, roleName) => {
+                const seg = segments.find((s) => s.id === segmentId);
+                if (seg) {
+                  await handleSegmentRoleChange(seg, roleId, roleName);
+                }
+              }}
+              onCreateRole={addRole}
             />
           </div>
         </aside>

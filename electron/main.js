@@ -133,12 +133,24 @@ function startNextServer(envVars) {
         requestHandler(req, res);
       });
 
+      // Pre-check: if another Studio server is already running on this port, reuse it
+      // instead of trying to listen (which would fail with EADDRINUSE).
+      const alreadyRunning = await isExistingStudioServerReady();
+      if (alreadyRunning) {
+        logStartup(`[Electron] Reusing existing app server on port ${NEXT_PORT}`);
+        nextServer = null;
+        nextApp = null;
+        resolve();
+        return;
+      }
+
       nextServer.listen(NEXT_PORT, () => {
         logStartup(`[Electron] Next.js server is ready on port ${NEXT_PORT}`);
         resolve();
       });
 
       nextServer.on("error", async (err) => {
+        // Double-check in case of race: another process grabbed the port between our check and listen()
         if (err.code === "EADDRINUSE" && (await isExistingStudioServerReady())) {
           logStartup(`[Electron] Reusing existing app server on port ${NEXT_PORT}`);
           nextServer = null;
@@ -285,9 +297,7 @@ ipcMain.handle("open-config-folder", () => {
 });
 
 ipcMain.handle("get-env-status", () => {
-  const env = loadConfig();
   return {
-    deepseekConfigured: !!env.DEEPSEEK_API_KEY,
     configPath: CONFIG_FILE,
     configDirExists: fs.existsSync(CONFIG_DIR),
     configFileExists: fs.existsSync(CONFIG_FILE),

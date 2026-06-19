@@ -7,7 +7,6 @@ export default function SettingsPanel() {
 
   // Electron env status
   const [envStatus, setEnvStatus] = useState<{
-    deepseekConfigured: boolean;
     configPath: string;
     configFileExists: boolean;
   } | null>(null);
@@ -51,41 +50,34 @@ export default function SettingsPanel() {
               </button>
             </div>
 
-            {/* API Key Status (Electron only) */}
+            {/* Role Recognition Mode */}
             {isElectron && envStatus && (
               <div className="space-y-3 mb-4 pb-4 border-b border-zinc-800">
                 <p className="text-xs font-medium text-zinc-400 border-b border-zinc-800 pb-1">
-                  🔑 API 密钥状态
+                  🔍 角色识别
                 </p>
                 <div className="space-y-2 text-[11px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-400">DeepSeek (AI 角色识别)</span>
-                    <span
-                      className={
-                        envStatus.deepseekConfigured
-                          ? "text-green-400"
-                          : "text-red-400"
-                      }
-                    >
-                      {envStatus.deepseekConfigured ? "✓ 已配置" : "✗ 未配置"}
-                    </span>
+                    <span className="text-zinc-400">识别模式</span>
+                    <span className="text-blue-400">规则引擎</span>
                   </div>
-                  {!envStatus.deepseekConfigured ? (
-                    <div className="mt-2 p-2 bg-zinc-800 rounded-md">
-                      <p className="text-zinc-500 mb-1 leading-relaxed">
-                        请在配置文件中设置 API 密钥：
-                      </p>
-                      <p className="text-zinc-600 font-mono text-[10px] break-all">
-                        {envStatus.configPath}
-                      </p>
-                      <button
-                        onClick={() => window.electronAPI?.openConfigFolder()}
-                        className="mt-2 text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
-                      >
-                        📂 打开配置文件夹
-                      </button>
-                    </div>
-                  ) : null}
+                  <p className="text-zinc-500 leading-relaxed">
+                    基于方括号标记、言说动词、后文归属等规则自动识别角色。无需配置 API 密钥。
+                  </p>
+                  <div className="mt-2 p-2 bg-zinc-800 rounded-md">
+                    <p className="text-zinc-500 mb-1 leading-relaxed">
+                      配置文件位置：
+                    </p>
+                    <p className="text-zinc-600 font-mono text-[10px] break-all">
+                      {envStatus.configPath}
+                    </p>
+                    <button
+                      onClick={() => window.electronAPI?.openConfigFolder()}
+                      className="mt-2 text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                    >
+                      📂 打开配置文件夹
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
