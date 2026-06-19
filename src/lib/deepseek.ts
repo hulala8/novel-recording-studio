@@ -190,16 +190,23 @@ async function callDeepSeek(
   }
 
   // Force-correct AI results with bracket markers before pruning
-  const corrected = forceBracketMarkers(
+  const bracketCorrected = forceBracketMarkers(
     segments,
     parsed.roles || [],
     parsed.segmentRoles || []
   );
 
+  // Also apply post-dialogue speaker detection
+  const fullyCorrected = forcePostDialogueMarkers(
+    segments,
+    bracketCorrected.roles,
+    bracketCorrected.segmentRoles
+  );
+
   return pruneUnusedDialogueRoles(
     segments,
-    corrected.roles,
-    corrected.segmentRoles
+    fullyCorrected.roles,
+    fullyCorrected.segmentRoles
   );
 }
 
@@ -270,6 +277,85 @@ function forceBracketMarkers(
         name: bracketName,
         color: ROLE_COLORS[(colorIdx - 1) % ROLE_COLORS.length],
       });
+    }
+  }
+
+  const correctedSegmentRoles = Array.from(roleMap.entries()).map(
+    ([segmentIndex, roleName]) => ({ segmentIndex, roleName })
+  );
+
+  return {
+    roles: [...roles, ...Array.from(extraRoles.values())],
+    segmentRoles: correctedSegmentRoles,
+  };
+}
+
+// Speech verbs used in post-dialogue detection (mirrors text-parser SPEECH_VERBS)
+const POST_DIALOGUE_SPEECH_VERBS =
+  "(?:问道|说道|答道|笑道|怒道|叹道|喊道|叫道|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|说|道|问|答|喊|叫|嚷|骂|吼)";
+
+/**
+ * Force-correct AI results using post-dialogue speaker attribution patterns.
+ * When narration AFTER a dialogue starts with "NAME说", "是NAME", or "NAME的声音",
+ * the preceding dialogue belongs to that NAME.
+ */
+function forcePostDialogueMarkers(
+  segments: RawSegment[],
+  roles: { name: string; color: string }[],
+  segmentRoles: { segmentIndex: number; roleName: string }[]
+): {
+  roles: { name: string; color: string }[];
+  segmentRoles: { segmentIndex: number; roleName: string }[];
+} {
+  const roleMap = new Map(segmentRoles.map((sr) => [sr.segmentIndex, sr.roleName]));
+  const extraRoles = new Map<string, { name: string; color: string }>();
+  const characterNames = roles.map((r) => r.name);
+
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    if (seg.type !== "dialogue") continue;
+
+    // Only correct if current assignment is 旁白 or unknown
+    const currentRole = roleMap.get(seg.index);
+    if (currentRole && currentRole !== "旁白") continue;
+
+    const nextSeg = segments[i + 1];
+    if (nextSeg.type !== "narration") continue;
+
+    for (const name of characterNames) {
+      if (name === "旁白") continue;
+
+      // Pattern A: "NAME说/道/问..." at start of next narration
+      if (new RegExp(`^${name}\\s*${POST_DIALOGUE_SPEECH_VERBS}`).test(nextSeg.text)) {
+        roleMap.set(seg.index, name);
+        break;
+      }
+      // Pattern B: "是NAME" at start — explicit speaker identification
+      if (new RegExp(`^是${name}[，。\\s]`).test(nextSeg.text)) {
+        roleMap.set(seg.index, name);
+        break;
+      }
+      // Pattern C: "NAME的声音/语气/嗓子" — voice attribution
+      if (
+        new RegExp(`^${name}的(?:声音|嗓子|语气|话|语调|口气)`).test(
+          nextSeg.text
+        )
+      ) {
+        roleMap.set(seg.index, name);
+        break;
+      }
+    }
+
+    // Ensure new names are in roles list
+    const newRole = roleMap.get(seg.index);
+    if (newRole && newRole !== currentRole) {
+      if (!roles.find((r) => r.name === newRole) && !extraRoles.has(newRole)) {
+        const colorIdx = roles.length + extraRoles.size;
+        extraRoles.set(newRole, {
+          name: newRole,
+          color: ROLE_COLORS[(colorIdx - 1) % ROLE_COLORS.length],
+        });
+      }
     }
   }
 
@@ -411,17 +497,23 @@ export async function identifyRoles(
       }
     }
 
-    // Post-process: correct AI results using bracket markers
-    const corrected = forceBracketMarkers(
+    // Post-process: correct AI results using bracket markers + post-dialogue patterns
+    const bracketCorrected = forceBracketMarkers(
       segments,
       Array.from(seen.values()),
       allSegmentRoles
     );
 
+    const fullyCorrected = forcePostDialogueMarkers(
+      segments,
+      bracketCorrected.roles,
+      bracketCorrected.segmentRoles
+    );
+
     return pruneUnusedDialogueRoles(
       segments,
-      corrected.roles,
-      corrected.segmentRoles
+      fullyCorrected.roles,
+      fullyCorrected.segmentRoles
     );
   } catch (err) {
     return {
