@@ -103,8 +103,22 @@ function startNextServer(envVars) {
     logStartup(`[Electron] App dir: ${appDir} (packaged: ${app.isPackaged})`);
 
     try {
-      // Use Next.js programmatic API — works inside ASAR because require() + fs reads are allowed
-      const Next = require("next");
+      // Pre-check: verify the app directory / ASAR is readable
+      let Next;
+      try {
+        Next = require("next");
+      } catch (modErr) {
+        throw new Error(
+          `无法加载 Next.js 模块。应用可能未正确打包。\n${modErr.message}`
+        );
+      }
+
+      if (!Next || typeof Next !== "function") {
+        throw new Error(
+          `Next.js 模块加载异常 (type: ${typeof Next})。请重新安装应用。`
+        );
+      }
+
       nextApp = Next({
         dev: false,
         dir: appDir,
@@ -284,15 +298,32 @@ ipcMain.handle("get-env-status", () => {
 
 async function launchApp() {
   try {
+    // Show a loading message immediately so user knows app is starting
+    logStartup(`[Electron] App starting — platform: ${process.platform}, version: ${app.getVersion()}`);
+
     setupPermissions();
     const envVars = loadConfig();
+
+    // 30-second startup timeout — shows error instead of hanging silently
+    const startupTimeout = setTimeout(() => {
+      logStartup("[Electron] Startup timed out after 30s");
+      dialog.showErrorBox(
+        "启动超时",
+        `应用服务器在 30 秒内未能启动。\n\n可能原因：\n1. 端口 ${NEXT_PORT} 被占用\n2. 防火墙阻止了网络访问\n3. 杀毒软件拦截了应用\n\n请查看日志：\n${path.join(CONFIG_DIR, "startup.log")}`
+      );
+      app.quit();
+    }, 30000);
+
     await startNextServer(envVars);
+    clearTimeout(startupTimeout);
+
     createWindow();
   } catch (err) {
     logStartup("[Electron] Startup failed:", err);
+    const logPath = path.join(CONFIG_DIR, "startup.log");
     dialog.showErrorBox(
       "启动失败",
-      `无法启动应用服务器：\n${err.message}\n\n请检查端口 ${NEXT_PORT} 是否被占用。`
+      `无法启动应用服务器：\n${err.message}\n\n日志文件：\n${logPath}\n\n请将此日志文件发送给开发者以排查问题。`
     );
     app.quit();
   }
