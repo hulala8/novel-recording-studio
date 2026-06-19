@@ -4,6 +4,7 @@
 
 import type { IdentifyRolesResponse, RawSegment } from "./types";
 import { normalizeRoleName } from "./role-name-utils";
+import { extractBracketNames } from "./text-parser";
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 const CHUNK_SIZE = 25; // Process 25 segments per API call
@@ -188,10 +189,17 @@ async function callDeepSeek(
     }
   }
 
-  return pruneUnusedDialogueRoles(
+  // Force-correct AI results with bracket markers before pruning
+  const corrected = forceBracketMarkers(
     segments,
     parsed.roles || [],
     parsed.segmentRoles || []
+  );
+
+  return pruneUnusedDialogueRoles(
+    segments,
+    corrected.roles,
+    corrected.segmentRoles
   );
 }
 
@@ -217,6 +225,63 @@ const ROLE_COLORS = [
   "#8B5CF6", "#EC4899", "#06B6D4", "#F97316",
   "#84CC16", "#14B8A6", "#E11D48", "#A855F7",
 ];
+
+/**
+ * Force-correct segment role assignments using 【Name-Descriptor】 bracket markers.
+ * Bracket markers are explicit speaker indicators — they take priority over AI guesses.
+ */
+function forceBracketMarkers(
+  segments: RawSegment[],
+  roles: { name: string; color: string }[],
+  segmentRoles: { segmentIndex: number; roleName: string }[]
+): {
+  roles: { name: string; color: string }[];
+  segmentRoles: { segmentIndex: number; roleName: string }[];
+} {
+  const segMap = new Map(segments.map((s) => [s.index, s]));
+  const roleMap = new Map(segmentRoles.map((sr) => [sr.segmentIndex, sr.roleName]));
+  const extraRoles = new Map<string, { name: string; color: string }>();
+
+  for (const seg of segments) {
+    if (seg.type !== "dialogue") continue;
+
+    const thisIdx = segments.indexOf(seg);
+    if (thisIdx <= 0) continue;
+
+    const prevSeg = segments[thisIdx - 1];
+    if (prevSeg.type !== "narration") continue;
+
+    // Check for 【Name-Descriptor】 in preceding narration
+    const bracketMatch = prevSeg.text.match(
+      /【([^】一—～·\-]+?)(?:[一—～·\-][^】]+)?】/
+    );
+    if (!bracketMatch) continue;
+
+    const bracketName = bracketMatch[1].trim();
+    if (!bracketName || bracketName === "旁白") continue;
+
+    // Override AI assignment with bracket-extracted name
+    roleMap.set(seg.index, bracketName);
+
+    // Ensure the name is in the roles list
+    if (!roles.find((r) => r.name === bracketName) && !extraRoles.has(bracketName)) {
+      const colorIdx = roles.length + extraRoles.size;
+      extraRoles.set(bracketName, {
+        name: bracketName,
+        color: ROLE_COLORS[(colorIdx - 1) % ROLE_COLORS.length],
+      });
+    }
+  }
+
+  const correctedSegmentRoles = Array.from(roleMap.entries()).map(
+    ([segmentIndex, roleName]) => ({ segmentIndex, roleName })
+  );
+
+  return {
+    roles: [...roles, ...Array.from(extraRoles.values())],
+    segmentRoles: correctedSegmentRoles,
+  };
+}
 
 /**
  * Keep only roles that are actually assigned to dialogue segments.
@@ -282,9 +347,14 @@ export async function identifyRoles(
     };
   }
 
+  // Pre-extract names from 【Name-Descriptor】 bracket patterns as AI hints
+  const allText = segments.map((s) => s.text).join("\n");
+  const bracketNames = extractBracketNames(allText);
+  const knownRoles = bracketNames.map((name) => ({ name, color: "" }));
+
   // If few segments, process in one shot
   if (segments.length <= CHUNK_SIZE) {
-    return callDeepSeek(segments, []);
+    return callDeepSeek(segments, knownRoles);
   }
 
   // For large texts, use a two-pass strategy:
@@ -300,7 +370,7 @@ export async function identifyRoles(
       sample.push(segments[i]);
     }
 
-    const pass1Result = await callDeepSeek(sample, []);
+    const pass1Result = await callDeepSeek(sample, knownRoles);
     if (!pass1Result.success) {
       return pass1Result;
     }
@@ -341,10 +411,17 @@ export async function identifyRoles(
       }
     }
 
-    return pruneUnusedDialogueRoles(
+    // Post-process: correct AI results using bracket markers
+    const corrected = forceBracketMarkers(
       segments,
       Array.from(seen.values()),
       allSegmentRoles
+    );
+
+    return pruneUnusedDialogueRoles(
+      segments,
+      corrected.roles,
+      corrected.segmentRoles
     );
   } catch (err) {
     return {

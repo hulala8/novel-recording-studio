@@ -27,6 +27,28 @@ const QUOTE_PAIR: Record<string, string> = {
   "『": "』", // 『 → 』
 };
 
+// Speech-verb regex pattern — reused across extractCharacterNames and ruleBasedRoleAssign
+// Multi-char verbs listed FIRST so "问道" is tried before "道", "笑道" before "笑", etc.
+// Non-capturing for ruleBasedRoleAssign compatibility; capturing version used in extractCharacterNames
+const SPEECH_VERBS =
+  "(?:问道|说道|答道|笑道|怒道|叹道|喊道|叫道|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|说|道|问|答|喊|叫|嚷|骂|吼)";
+
+// Compound words where the second character is a speech verb — these are NOT "name + speech verb"
+// e.g., "知道" is a compound (to know), not "知" saying something
+const SPEECH_VERB_COMPOUNDS = new Set([
+  // 道-based compounds
+  "知道", "味道", "频道", "街道", "人道", "地道", "公道", "霸道",
+  "赤道", "航道", "轨道", "力道", "门道", "难道", "渠道",
+  "隧道", "一道", "正道", "管道", "说道",
+  // 说-based compounds
+  "小说", "传说", "解说", "再说", "虽说", "别说", "胡说",
+  "劝说", "诉说", "话说", "细说", "直说", "实说",
+  // 问-based compounds
+  "疑问", "访问", "顾问", "学问", "发问", "反问",
+  // 答-based compounds
+  "回答", "解答", "对答",
+]);
+
 interface QuotedPart {
   text: string;
   inQuote: boolean;
@@ -36,21 +58,40 @@ interface QuotedPart {
  * Split a text paragraph into alternating non-quoted / quoted parts
  * using character-by-character scanning with a quote stack.
  *
- * Example:
- *   input:  张三说："你好。"然后转身离开。
- *   output: [{text:"张三说：", inQuote:false}, {text:""你好。"", inQuote:true}, {text:"然后转身离开。", inQuote:false}]
+ * Supports:
+ * - Chinese curly quotes: "" '' 「」 『』
+ * - ASCII straight double quotes: " (toggles open/close)
  */
 function extractQuotedParts(text: string): QuotedPart[] {
   const result: QuotedPart[] = [];
   let buffer = "";
-  const quoteStack: string[] = []; // tracks which left quote we're inside
+  const quoteStack: string[] = [];
   let i = 0;
 
   while (i < text.length) {
     const ch = text[i];
 
-    if (LEFT_QUOTES.has(ch) && quoteStack.length === 0) {
-      // Start of a new quote — flush non-quoted buffer first
+    // ASCII straight double quote " — toggles in/out (same char opens and closes)
+    if (ch === '"') {
+      if (quoteStack.length > 0 && quoteStack[quoteStack.length - 1] === '"') {
+        // End ASCII quote
+        buffer += ch;
+        result.push({ text: buffer, inQuote: true });
+        buffer = "";
+        quoteStack.pop();
+      } else if (quoteStack.length === 0) {
+        // Start ASCII quote (only start when not already inside a quote)
+        if (buffer.trim().length > 0) {
+          result.push({ text: buffer, inQuote: false });
+        }
+        buffer = ch;
+        quoteStack.push(ch);
+      } else {
+        // Inside a different quote type — treat as regular character
+        buffer += ch;
+      }
+    } else if (LEFT_QUOTES.has(ch) && quoteStack.length === 0) {
+      // Start of a Chinese curly quote
       if (buffer.trim().length > 0) {
         result.push({ text: buffer, inQuote: false });
       }
@@ -61,7 +102,7 @@ function extractQuotedParts(text: string): QuotedPart[] {
       quoteStack.length > 0 &&
       QUOTE_PAIR[quoteStack[quoteStack.length - 1]] === ch
     ) {
-      // End of current quote
+      // End of matching Chinese curly quote
       buffer += ch;
       result.push({ text: buffer, inQuote: true });
       buffer = "";
@@ -73,7 +114,7 @@ function extractQuotedParts(text: string): QuotedPart[] {
     i++;
   }
 
-  // Flush any trailing non-quoted text
+  // Flush trailing text
   if (buffer.trim().length > 0) {
     result.push({ text: buffer, inQuote: false });
   }
@@ -83,7 +124,6 @@ function extractQuotedParts(text: string): QuotedPart[] {
 
 /**
  * Merge quoted parts that are too short with their neighbors.
- * A standalone short fragment (< minLen) gets merged into the adjacent part.
  */
 function mergeTinyQuoteParts(parts: QuotedPart[], minLen: number): QuotedPart[] {
   if (parts.length <= 1) return parts;
@@ -94,22 +134,18 @@ function mergeTinyQuoteParts(parts: QuotedPart[], minLen: number): QuotedPart[] 
   while (i < parts.length) {
     const current = parts[i];
 
-    // If current part is very short, try to merge with neighbor
     if (current.text.trim().length < minLen) {
       if (merged.length > 0) {
-        // Merge into previous
         merged[merged.length - 1] = {
           text: merged[merged.length - 1].text + current.text,
           inQuote: merged[merged.length - 1].inQuote,
         };
       } else if (i + 1 < parts.length) {
-        // Merge into next
         parts[i + 1] = {
           text: current.text + parts[i + 1].text,
           inQuote: parts[i + 1].inQuote,
         };
       } else {
-        // Standalone tiny part — keep it
         merged.push(current);
       }
     } else {
@@ -123,20 +159,13 @@ function mergeTinyQuoteParts(parts: QuotedPart[], minLen: number): QuotedPart[] 
 
 /**
  * Segment raw text into structured paragraphs suitable for role identification.
- *
- * Rules:
- * - Content inside Chinese quotes ("", '', 「」, 『』) → type:"dialogue"
- * - Content outside quotes → type:"narration" (always 旁白)
- * - Paragraphs split by blank lines
  */
 export function segmentText(text: string): RawSegment[] {
-  // Normalize line endings
   const normalized = text
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/\t/g, "    ");
 
-  // Split by double newlines (paragraph breaks)
   const paragraphs = normalized
     .split(/\n\n+/)
     .map((p) => p.replace(/\n/g, "").trim())
@@ -150,7 +179,6 @@ export function segmentText(text: string): RawSegment[] {
   let index = 0;
 
   for (const para of paragraphs) {
-    // Extract quoted and non-quoted parts
     const parts = extractQuotedParts(para);
     const cleaned = mergeTinyQuoteParts(parts, 3);
 
@@ -170,15 +198,28 @@ export function segmentText(text: string): RawSegment[] {
 }
 
 /**
- * Extract names from 【Name-Descriptor】 or 【Name】 bracket patterns.
- * e.g., 【刘信-浪客】→ 刘信, 【张三】→ 张三
+ * Extract names from 【Name-Separator-Descriptor】 bracket patterns.
+ * Common separators: - (dash), 一 (U+4E00, used as dash in some texts),
+ * — (em dash U+2014), ～ (wave dash), · (middle dot)
+ * e.g., 【刘信-浪客】→ 刘信, 【贾嘉华一老吴】→ 贾嘉华, 【张三】→ 张三
  */
-const BRACKET_NAME_PATTERN = /【([^】-]+?)(?:-[^】]+)?】/g;
+// Character class for allowed separators between name and descriptor.
+// Put - at end so it's literal, not a range.
+const BRACKET_SEP_CHARS = "一—～·-";
+// Global regex for extractBracketNames (used with .exec() in a loop)
+const BRACKET_NAME_RE_G = new RegExp(
+  `【([^】${BRACKET_SEP_CHARS}]+?)(?:[${BRACKET_SEP_CHARS}][^】]+)?】`,
+  "g"
+);
+// Non-global regex for single-match use in ruleBasedRoleAssign step 2a
+const BRACKET_NAME_RE = new RegExp(
+  `【([^】${BRACKET_SEP_CHARS}]+?)(?:[${BRACKET_SEP_CHARS}][^】]+)?】`
+);
 
-function extractBracketNames(text: string): string[] {
+export function extractBracketNames(text: string): string[] {
   const names: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = BRACKET_NAME_PATTERN.exec(text)) !== null) {
+  while ((match = BRACKET_NAME_RE_G.exec(text)) !== null) {
     const name = match[1].trim();
     if (name.length >= 1 && name.length <= 4) {
       names.push(name);
@@ -196,7 +237,7 @@ function extractBracketNames(text: string): string[] {
  */
 export function extractCharacterNames(text: string): string[] {
   const names = new Set<string>();
-  names.add("旁白");
+  names.add("旁白"); // 旁白
 
   // Source 1: 【Name-Descriptor】bracket patterns — high-confidence speaker markers
   for (const name of extractBracketNames(text)) {
@@ -204,13 +245,23 @@ export function extractCharacterNames(text: string): string[] {
   }
 
   // Source 2: Match 1-4 Chinese characters before a speech verb
-  const speakerPattern =
-    /([一-鿿]{1,4})\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|喊道|叫道)/g;
+  // {1,4}? is non-greedy so "王婶问道" captures "王婶" not "王婶问"
+  // Capturing groups: [1]=name, [2]=speech verb
+  const CAPTURING_SPEECH_VERBS = SPEECH_VERBS.replace("(?:", "(");
+  const speakerPattern = new RegExp(
+    `([一-鿿]{1,4}?)\\s*${CAPTURING_SPEECH_VERBS}`,
+    "g"
+  );
 
   let match: RegExpExecArray | null;
   while ((match = speakerPattern.exec(text)) !== null) {
     const name = match[1].trim();
-    // Filter out non-name words
+    const verb = match[2];
+
+    // Skip if name + first verb char forms a compound word (e.g., 知道, 味道)
+    const possibleCompound = name + (verb[0] || "");
+    if (SPEECH_VERB_COMPOUNDS.has(possibleCompound)) continue;
+
     if (
       name.length >= 1 &&
       name.length <= 4 &&
@@ -220,7 +271,7 @@ export function extractCharacterNames(text: string): string[] {
       !/^(?:一下|起来|出来|过来|过去|下来)$/.test(name) &&
       // Exclude temporal adverbs
       !/^(?:忽然|突然|然后|于是|接着|便|又|再|才|就|已经|曾经|正在)$/.test(name) &&
-      // Exclude manner adverbs (common before speech verbs)
+      // Exclude manner adverbs
       !/^(?:轻轻|淡淡|微微|冷冷|慢慢|静静|缓缓|悠悠|悄悄|默默|狠狠|重重)$/.test(name) &&
       // Exclude speech-manner adverbials
       !/^(?:轻声|低声|小声|大声|高声|柔声|厉声|沉声|冷声|怒声|笑着|微笑着|大笑着|苦笑着|冷笑着|淡笑着|笑|微笑|大笑|苦笑|冷笑|淡笑)$/.test(name) &&
@@ -229,9 +280,9 @@ export function extractCharacterNames(text: string): string[] {
       !/^(?:没有|不是|不会|不能|不要|不用|不必)$/.test(name) &&
       // Exclude body-part + verb combinations
       !/^(?:抬起头|低下头|转过头|站起身|坐直|站起|坐下)$/.test(name) &&
-      // Exclude single-char false positives (common compounds with speech verbs)
+      // Exclude single-char false positives
       !/^(?:街|路|巷|灯|门|窗|墙|楼|屋|房|树|花|草|山|水|河|海|天|地|日|月|星|云|风|雨|雪)$/.test(name) &&
-      // Exclude common noun compounds ending in speech verb characters
+      // Exclude common noun compounds
       !/^(?:街道|知道|味道|频道)$/.test(name)
     ) {
       names.add(name);
@@ -243,16 +294,12 @@ export function extractCharacterNames(text: string): string[] {
 
 /**
  * Rule-based role assignment as fallback when AI is unavailable.
- *
- * Rules:
- * - narration segments → always 旁白
- * - dialogue segments → find speaker from nearby context
  */
 export function ruleBasedRoleAssign(
   segments: RawSegment[],
   characterNames: string[]
 ): { segmentIndex: number; roleName: string }[] {
-  let lastSpeaker = "旁白";
+  let lastSpeaker = "旁白"; // 旁白
 
   return segments.map((seg) => {
     // Narration is ALWAYS 旁白
@@ -260,7 +307,6 @@ export function ruleBasedRoleAssign(
       return { segmentIndex: seg.index, roleName: "旁白" };
     }
 
-    // Dialogue: try to find the speaker
     let roleName: string | null = null;
 
     // 1. Check if this segment's own text contains a speaker attribution
@@ -268,8 +314,8 @@ export function ruleBasedRoleAssign(
       if (name === "旁白") continue;
 
       const patterns = [
-        new RegExp(`${name}\\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|喊道|叫道)`),
-        new RegExp(`${name}[：:]\\s*[""「『]`),
+        new RegExp(`${name}\\s*${SPEECH_VERBS}`),
+        new RegExp(`${name}[：:]\\s*["“”「『]`),
       ];
 
       if (patterns.some((p) => p.test(seg.text))) {
@@ -278,29 +324,29 @@ export function ruleBasedRoleAssign(
       }
     }
 
-    // 2. If no speaker found in this segment, check preceding narration segments
-    //    (the segment before this one often contains "XX说：" or 【Name-Descriptor】)
+    // 2. If no speaker found, check preceding narration segment
+    //    (for "XX说：" or 【Name-Descriptor】 patterns)
     if (!roleName) {
       const thisIdx = segments.indexOf(seg);
       if (thisIdx > 0) {
         const prevSeg = segments[thisIdx - 1];
         if (prevSeg.type === "narration") {
-          // 2a. Check for 【Name-Descriptor】 bracket pattern first (high-confidence)
-          //     e.g., 【刘信-浪客】→ 刘信 is the speaker
+          // 2a. Check for 【Name-Descriptor】 bracket pattern (high-confidence)
+          //     Supports separators: - 一 — ～ ·
           const bracketNameMatch = prevSeg.text.match(
-            /【([^】-]+?)(?:-[^】]+)?】/
+            BRACKET_NAME_RE
           );
           if (bracketNameMatch) {
             roleName = bracketNameMatch[1].trim();
           }
 
-          // 2b. Check for speech-verb patterns (XX说/道/问 etc.)
+          // 2b. Check for speech-verb patterns
           if (!roleName) {
             for (const name of characterNames) {
               if (name === "旁白") continue;
               if (
                 new RegExp(
-                  `${name}\\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|问道|喊道|叫道)[：:]?\\s*$`
+                  `${name}\\s*${SPEECH_VERBS}[：:]?\\s*$`
                 ).test(prevSeg.text)
               ) {
                 roleName = name;
@@ -312,14 +358,14 @@ export function ruleBasedRoleAssign(
       }
     }
 
-    // 3. Fall back to last known speaker if this looks like continued dialogue
+    // 3. Fall back to last known speaker for continued dialogue
     if (!roleName && lastSpeaker !== "旁白") {
       roleName = lastSpeaker;
     }
 
     // 4. Final fallback
     if (!roleName) {
-      roleName = "旁白"; // user can fix in review
+      roleName = "旁白";
     }
 
     roleName = normalizeRoleName(roleName);

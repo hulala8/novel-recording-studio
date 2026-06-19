@@ -39,12 +39,39 @@ const BLOCKED_ROLE_NAMES = new Set([
   "跟勇搭腔",
   "急忙掩嘴",
   "对胡彩香",
+  // Single-char false positives from compound words
+  "知",
+  "味",
+  "频",
+  // Common nouns mistaken for names
+  "大家",
+  "上级",
+  "众人",
+  "某人",
+  "这人",
+  "那人",
+  // Single-char false positives
+  "这",
+  "那",
+  "难",
+  "好",
+  "对",
+  "行",
+  "来",
+  "去",
+  "走",
+  "看",
+  "想",
+  "笑",
+  "哭",
 ]);
 
 export function isLikelyRealRoleName(name: string): boolean {
   const trimmed = name.trim().replace(/[，。！？!?、\s]+$/g, "");
   if (!trimmed || trimmed === "旁白") return true;
   if (BLOCKED_ROLE_NAMES.has(trimmed)) return false;
+  // Names containing the grammatical particle 的 are not real (e.g., 的话都有, 上我们的)
+  if (/的/.test(trimmed)) return false;
   if (/^[你我他她它们我们听说问喊叫]+$/.test(trimmed)) return false;
   if (/^[0-9A-Za-z]+$/.test(trimmed)) return false;
   if (trimmed.length > 6) return false;
