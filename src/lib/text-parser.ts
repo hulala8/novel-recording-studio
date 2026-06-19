@@ -358,12 +358,49 @@ export function ruleBasedRoleAssign(
       }
     }
 
-    // 3. Fall back to last known speaker for continued dialogue
+    // 3. If still no speaker, check the FOLLOWING narration segment
+    //    (post-dialogue attribution patterns)
+    if (!roleName) {
+      const thisIdx = segments.indexOf(seg);
+      if (thisIdx >= 0 && thisIdx < segments.length - 1) {
+        const nextSeg = segments[thisIdx + 1];
+        if (nextSeg.type === "narration") {
+          for (const name of characterNames) {
+            if (name === "旁白") continue;
+            // Pattern A: "NAME说/道/问..." at start of next narration
+            if (
+              new RegExp(`^${name}\\s*${SPEECH_VERBS}`).test(nextSeg.text)
+            ) {
+              roleName = name;
+              break;
+            }
+            // Pattern B: "是NAME" at start — explicitly identifies speaker
+            if (
+              new RegExp(`^是${name}[，。\\s]`).test(nextSeg.text)
+            ) {
+              roleName = name;
+              break;
+            }
+            // Pattern C: "NAME的声音/NAME的语气" — voice attribution
+            if (
+              new RegExp(`^${name}的(?:声音|嗓子|语气|话|语调|口气)`).test(
+                nextSeg.text
+              )
+            ) {
+              roleName = name;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Fall back to last known speaker for continued dialogue
     if (!roleName && lastSpeaker !== "旁白") {
       roleName = lastSpeaker;
     }
 
-    // 4. Final fallback
+    // 5. Final fallback
     if (!roleName) {
       roleName = "旁白";
     }
