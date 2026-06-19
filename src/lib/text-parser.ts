@@ -170,14 +170,40 @@ export function segmentText(text: string): RawSegment[] {
 }
 
 /**
- * Extract potential character names using speech-verb patterns.
- * "XX说/道/问..." → XX is a candidate character name.
+ * Extract names from 【Name-Descriptor】 or 【Name】 bracket patterns.
+ * e.g., 【刘信-浪客】→ 刘信, 【张三】→ 张三
+ */
+const BRACKET_NAME_PATTERN = /【([^】-]+?)(?:-[^】]+)?】/g;
+
+function extractBracketNames(text: string): string[] {
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = BRACKET_NAME_PATTERN.exec(text)) !== null) {
+    const name = match[1].trim();
+    if (name.length >= 1 && name.length <= 4) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Extract potential character names using speech-verb patterns and bracket markers.
+ *
+ * Two sources:
+ * 1. 【Name-Descriptor】or【Name】bracket markers — direct speaker indicators
+ * 2. "XX说/道/问..." speech-verb patterns — XX is a candidate character name
  */
 export function extractCharacterNames(text: string): string[] {
   const names = new Set<string>();
   names.add("旁白");
 
-  // Match 1-4 Chinese characters before a speech verb
+  // Source 1: 【Name-Descriptor】bracket patterns — high-confidence speaker markers
+  for (const name of extractBracketNames(text)) {
+    names.add(name);
+  }
+
+  // Source 2: Match 1-4 Chinese characters before a speech verb
   const speakerPattern =
     /([一-鿿]{1,4})\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|喊道|叫道)/g;
 
@@ -253,21 +279,33 @@ export function ruleBasedRoleAssign(
     }
 
     // 2. If no speaker found in this segment, check preceding narration segments
-    //    (the segment before this one often contains "XX说：")
+    //    (the segment before this one often contains "XX说：" or 【Name-Descriptor】)
     if (!roleName) {
       const thisIdx = segments.indexOf(seg);
       if (thisIdx > 0) {
         const prevSeg = segments[thisIdx - 1];
         if (prevSeg.type === "narration") {
-          for (const name of characterNames) {
-            if (name === "旁白") continue;
-            if (
-              new RegExp(
-                `${name}\\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|问道|喊道|叫道)[：:]?\\s*$`
-              ).test(prevSeg.text)
-            ) {
-              roleName = name;
-              break;
+          // 2a. Check for 【Name-Descriptor】 bracket pattern first (high-confidence)
+          //     e.g., 【刘信-浪客】→ 刘信 is the speaker
+          const bracketNameMatch = prevSeg.text.match(
+            /【([^】-]+?)(?:-[^】]+)?】/
+          );
+          if (bracketNameMatch) {
+            roleName = bracketNameMatch[1].trim();
+          }
+
+          // 2b. Check for speech-verb patterns (XX说/道/问 etc.)
+          if (!roleName) {
+            for (const name of characterNames) {
+              if (name === "旁白") continue;
+              if (
+                new RegExp(
+                  `${name}\\s*(?:说|道|问|答|喊|叫|嚷|骂|吼|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|问道|说道|答道|笑道|怒道|叹道|问道|喊道|叫道)[：:]?\\s*$`
+                ).test(prevSeg.text)
+              ) {
+                roleName = name;
+                break;
+              }
             }
           }
         }
