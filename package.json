@@ -91,12 +91,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "icon": "public/icon.ico"
@@ -113,9 +107,6 @@
       "installerHeaderIcon": "public/icon.ico",
       "language": "2052",
       "deleteAppDataOnUninstall": false
-    },
-    "portable": {
-      "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "asar": true
   }
