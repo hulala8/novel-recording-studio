@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { Segment, Role } from "@/lib/types";
 
 const PRESET_COLORS = [
@@ -93,14 +93,20 @@ export default function QuickFixPanel({
     }
   }, [segments]);
 
-  // Reset confirmed IDs only when the chapter actually changes
-  // (different segment IDs), not on every segments.length change.
+  // Reset confirmed IDs only when the chapter actually changes.
+  // Skip the first render — confirmedIds may have been initialized
+  // from sessionStorage (carried over from DocUploader review).
   const [prevFirstId, setPrevFirstId] = useState<string | null>(null);
+  const isFirstRender = useRef(true);
   const firstId = segments.length > 0 ? segments[0].id : null;
   if (firstId !== null && firstId !== prevFirstId) {
+    if (!isFirstRender.current) {
+      // Chapter changed — reset confirmed state
+      if (confirmedIds.size > 0) setConfirmedIds(new Set());
+      if (currentIdx > 0) setCurrentIdx(0);
+    }
+    isFirstRender.current = false;
     setPrevFirstId(firstId);
-    if (confirmedIds.size > 0) setConfirmedIds(new Set());
-    if (currentIdx > 0) setCurrentIdx(0);
   }
   // Clamp currentIdx when items shrink (e.g., after confirming last item)
   const safeIdx = Math.min(currentIdx, Math.max(0, items.length - 1));
