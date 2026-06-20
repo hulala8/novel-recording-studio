@@ -24,13 +24,18 @@ export default function QuickFixPanel({
   const [open, setOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
+  // Track which segments the user has explicitly confirmed (even as 旁白)
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
 
   // Find dialogue segments assigned to "旁白" or "角色A"/"角色B" (placeholder names)
+  // Exclude segments that have been explicitly confirmed by the user
   const items = useMemo(() => {
     return segments.reduce<
       { seg: Segment; idx: number; prev?: Segment; next?: Segment }[]
     >((acc, seg, i) => {
       if (seg.roleName !== "旁白" && seg.roleName !== "角色A" && seg.roleName !== "角色B") return acc;
+      // Skip segments the user has already confirmed
+      if (confirmedIds.has(seg.id)) return acc;
       // Exclude actual narration segments — only show dialogues that need fixing
       // (The segment text starting with quotes IS dialogue,
       //  and text without quotes assigned to 旁白 is actual narration and should be skipped)
@@ -47,20 +52,27 @@ export default function QuickFixPanel({
       });
       return acc;
     }, []);
-  }, [segments]);
+  }, [segments, confirmedIds]);
 
   const [currentIdx, setCurrentIdx] = useState(0);
-  const current = items[currentIdx] || null;
+  // Reset confirmed IDs when segments change (new chapter loaded)
+  const [prevSegmentsLen, setPrevSegmentsLen] = useState(0);
+  if (segments.length !== prevSegmentsLen) {
+    setPrevSegmentsLen(segments.length);
+    if (confirmedIds.size > 0) setConfirmedIds(new Set());
+    if (currentIdx > 0) setCurrentIdx(0);
+  }
+  // Clamp currentIdx when items shrink (e.g., after confirming last item)
+  const safeIdx = Math.min(currentIdx, Math.max(0, items.length - 1));
+  const current = items[safeIdx] || null;
 
   async function handleAssign(roleId: string, roleName: string) {
     if (!current) return;
+    setConfirmedIds((prev) => new Set(prev).add(current.seg.id));
     await onRoleChange(current.seg.id, roleId, roleName);
-    // Auto-advance
-    if (currentIdx < items.length - 1) {
-      setCurrentIdx(currentIdx + 1);
-    } else {
-      setCurrentIdx(0);
-    }
+    // Stay at current position — the confirmed item disappears on next
+    // render and the next unconfirmed item shifts into this slot.
+    // safeIdx will auto-clamp if we're past the new end.
   }
 
   async function handleCreateAndAssign() {
@@ -96,21 +108,21 @@ export default function QuickFixPanel({
           {/* Progress */}
           <div className="flex items-center justify-between text-[10px] text-zinc-500">
             <span>
-              {currentIdx + 1} / {items.length}
+              {safeIdx + 1} / {items.length}
             </span>
             <div className="flex gap-1">
               <button
-                onClick={() => setCurrentIdx(Math.max(0, currentIdx - 1))}
-                disabled={currentIdx === 0}
+                onClick={() => setCurrentIdx(Math.max(0, safeIdx - 1))}
+                disabled={safeIdx === 0}
                 className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30"
               >
                 ←
               </button>
               <button
                 onClick={() =>
-                  setCurrentIdx(Math.min(items.length - 1, currentIdx + 1))
+                  setCurrentIdx(Math.min(items.length - 1, safeIdx + 1))
                 }
-                disabled={currentIdx >= items.length - 1}
+                disabled={safeIdx >= items.length - 1}
                 className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30"
               >
                 →
@@ -154,6 +166,16 @@ export default function QuickFixPanel({
 
           {/* Quick role picker */}
           <div className="flex flex-wrap gap-1">
+            {/* 旁白 button: confirm this segment is correctly assigned as narration */}
+            <button
+              onClick={() => {
+                const narratorRole = roles.find((r) => r.name === "旁白");
+                if (narratorRole) handleAssign(narratorRole.id, narratorRole.name);
+              }}
+              className="px-2 py-1 text-[10px] rounded border border-zinc-600 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-all"
+            >
+              旁白 ✓
+            </button>
             {roles
               .filter((r) => r.name !== "旁白")
               .map((r) => (
