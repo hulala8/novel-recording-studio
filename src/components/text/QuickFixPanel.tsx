@@ -135,8 +135,6 @@ export default function QuickFixPanel({
     }
   }
 
-  if (items.length === 0) return null;
-
   return (
     <div className="border-t border-zinc-800 pt-2">
       <button
@@ -148,6 +146,10 @@ export default function QuickFixPanel({
         </span>
         <span className="text-zinc-600">{open ? "▲" : "▼"}</span>
       </button>
+
+      {items.length === 0 && (
+        <p className="text-[10px] text-zinc-600 px-1">全部已确认 ✓</p>
+      )}
 
       {open && current && (
         <div className="mt-2 space-y-2">
