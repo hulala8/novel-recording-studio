@@ -312,11 +312,12 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   async function handleConfirm() {
     await db.saveSegments(segments);
     await db.saveRoles(roles);
-    // Persist reviewed segment IDs so QuickFixPanel in studio can skip them
+    // Mark ALL current segments as reviewed — the user has finished
+    // the review stage and is entering the studio.
     try {
       sessionStorage.setItem(
         `reviewed-${projectId}`,
-        JSON.stringify([...reviewedSegmentIds])
+        JSON.stringify(segments.map((s) => s.id))
       );
     } catch { /* ignore quota errors */ }
     if (projectId) {

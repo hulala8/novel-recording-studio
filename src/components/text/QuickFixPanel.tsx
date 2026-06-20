@@ -93,10 +93,12 @@ export default function QuickFixPanel({
     }
   }, [segments]);
 
-  // Reset confirmed IDs when segments change (new chapter loaded)
-  const [prevSegmentsLen, setPrevSegmentsLen] = useState(0);
-  if (segments.length !== prevSegmentsLen) {
-    setPrevSegmentsLen(segments.length);
+  // Reset confirmed IDs only when the chapter actually changes
+  // (different segment IDs), not on every segments.length change.
+  const [prevFirstId, setPrevFirstId] = useState<string | null>(null);
+  const firstId = segments.length > 0 ? segments[0].id : null;
+  if (firstId !== null && firstId !== prevFirstId) {
+    setPrevFirstId(firstId);
     if (confirmedIds.size > 0) setConfirmedIds(new Set());
     if (currentIdx > 0) setCurrentIdx(0);
   }
