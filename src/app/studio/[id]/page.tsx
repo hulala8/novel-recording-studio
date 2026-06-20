@@ -812,6 +812,7 @@ export default function StudioPage() {
             <QuickFixPanel
               segments={segments}
               roles={roles}
+              projectId={projectId}
               onRoleChange={async (segmentId, roleId, roleName) => {
                 const seg = segments.find((s) => s.id === segmentId);
                 if (seg) {

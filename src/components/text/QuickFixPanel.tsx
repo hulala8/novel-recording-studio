@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { Segment, Role } from "@/lib/types";
 
 const PRESET_COLORS = [
@@ -11,6 +11,7 @@ const PRESET_COLORS = [
 interface QuickFixPanelProps {
   segments: Segment[];
   roles: Role[];
+  projectId: string;
   onRoleChange: (segmentId: string, roleId: string, roleName: string) => Promise<void>;
   onCreateRole: (name: string, color: string) => Promise<Role>;
 }
@@ -18,14 +19,25 @@ interface QuickFixPanelProps {
 export default function QuickFixPanel({
   segments,
   roles,
+  projectId,
   onRoleChange,
   onCreateRole,
 }: QuickFixPanelProps) {
   const [open, setOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
-  // Track which segments the user has explicitly confirmed (even as 旁白)
-  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set());
+  // Track which segments the user has explicitly confirmed (even as 旁白).
+  // Initialize from sessionStorage so segments reviewed in DocUploader carry over.
+  const [confirmedIds, setConfirmedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = sessionStorage.getItem(`reviewed-${projectId}`);
+      if (stored) {
+        const ids: string[] = JSON.parse(stored);
+        return new Set(ids);
+      }
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
 
   // Find dialogue segments assigned to "旁白" or "角色A"/"角色B" (placeholder names)
   // Exclude segments that have been explicitly confirmed by the user
@@ -55,6 +67,32 @@ export default function QuickFixPanel({
   }, [segments, confirmedIds]);
 
   const [currentIdx, setCurrentIdx] = useState(0);
+
+  // Detect segments that were corrected OUTSIDE of QuickFixPanel
+  // (e.g., via segment dropdown in TextViewer, or RoleEditor).
+  // Auto-mark them as confirmed so they disappear from this list.
+  useEffect(() => {
+    const toConfirm: string[] = [];
+    for (const seg of segments) {
+      if (
+        seg.roleName !== "旁白" &&
+        seg.roleName !== "角色A" &&
+        seg.roleName !== "角色B"
+      ) {
+        toConfirm.push(seg.id);
+      }
+    }
+    if (toConfirm.length > 0) {
+      setConfirmedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of toConfirm) {
+          if (!next.has(id)) next.add(id);
+        }
+        return next;
+      });
+    }
+  }, [segments]);
+
   // Reset confirmed IDs when segments change (new chapter loaded)
   const [prevSegmentsLen, setPrevSegmentsLen] = useState(0);
   if (segments.length !== prevSegmentsLen) {
