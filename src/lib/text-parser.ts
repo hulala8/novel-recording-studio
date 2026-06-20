@@ -158,7 +158,126 @@ function mergeTinyQuoteParts(parts: QuotedPart[], minLen: number): QuotedPart[] 
 }
 
 /**
+ * Check whether the text follows the 画本 (huaben) script format.
+ *
+ * Detected by the presence of 【角色名】 bracket cues. Works with or
+ * without the 正文 / 角色总表 metadata sections.
+ */
+export function isHuabenFormat(text: string): boolean {
+  const bracketMatches = text.match(/【[^】]+】/g);
+  return bracketMatches !== null && bracketMatches.length >= 3;
+}
+
+/**
+ * Extract the main text portion (everything after "正文") from 画本 format.
+ */
+export function extractHuabenMainText(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === "正文") {
+      return lines.slice(i + 1).join("\n");
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract character names from the 角色总表 section of a 画本 text.
+ */
+export function extractHuabenRoleTableNames(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const names = new Set<string>();
+  const charLineRe = /^【(.+?)】【.+?】【.+?】【\d+】$/;
+
+  for (const line of normalized.split("\n")) {
+    const match = line.trim().match(charLineRe);
+    if (match) {
+      const name = match[1].trim();
+      if (name.length >= 1 && name.length <= 4) {
+        names.add(name);
+      }
+    }
+  }
+
+  return Array.from(names);
+}
+
+/**
+ * Segment the main text of a 画本 script using its explicit 【Role】 cues.
+ *
+ * Core rule: 【X】marks the start of dialogue by character X. The dialogue
+ * extends to the end of the LINE. Everything else is narration.
+ *
+ * Handles both:
+ *   - Line-start:  【胡疤子】后头有人来过。
+ *   - Mid-line:    白松华说：【白松华】"你好啊！"
+ */
+function segmentHuabenMainText(mainText: string): RawSegment[] {
+  const normalized = mainText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const bracketRe = /【([^】]+?)】/g;
+  const segments: RawSegment[] = [];
+  let index = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Find ALL 【X】 markers on this line
+    bracketRe.lastIndex = 0;
+    const matches: { start: number; end: number; roleName: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = bracketRe.exec(line)) !== null) {
+      matches.push({ start: m.index, end: m.index + m[0].length, roleName: m[1] });
+    }
+
+    if (matches.length === 0) {
+      // No bracket — pure narration line
+      const last = segments[segments.length - 1];
+      if (last && last.type === "narration") {
+        last.text += line;
+      } else {
+        segments.push({ text: line, index: index++, type: "narration" });
+      }
+      continue;
+    }
+
+    let pos = 0;
+    for (const cue of matches) {
+      // Text before this【X】on the same line → narration
+      if (cue.start > pos) {
+        const before = line.slice(pos, cue.start).trim();
+        if (before) {
+          const last = segments[segments.length - 1];
+          if (last && last.type === "narration") {
+            last.text += before;
+          } else {
+            segments.push({ text: before, index: index++, type: "narration" });
+          }
+        }
+      }
+
+      // Text from【X】to end of line → dialogue
+      const dialogueText = line.slice(cue.start).trim();
+      if (dialogueText) {
+        segments.push({ text: dialogueText, index: index++, type: "dialogue" });
+      }
+
+      // After the first【X】on a line, the rest (to end of line)
+      // is already consumed as dialogue. Skip remaining matches
+      // on this line — they're inside the dialogue content.
+      break;
+    }
+  }
+
+  return segments;
+}
+
+/**
  * Segment raw text into structured paragraphs suitable for role identification.
+ *
+ * Automatically detects 画本 format and uses specialized segmentation.
  */
 export function segmentText(text: string): RawSegment[] {
   const normalized = text
@@ -166,14 +285,18 @@ export function segmentText(text: string): RawSegment[] {
     .replace(/\r/g, "\n")
     .replace(/\t/g, "    ");
 
+  if (isHuabenFormat(normalized)) {
+    const mainText = extractHuabenMainText(normalized) || normalized;
+    const segments = segmentHuabenMainText(mainText);
+    if (segments.length > 0) return segments;
+  }
+
   const paragraphs = normalized
     .split(/\n\n+/)
     .map((p) => p.replace(/\n/g, "").trim())
     .filter((p) => p.length > 0);
 
-  if (paragraphs.length === 0) {
-    return [];
-  }
+  if (paragraphs.length === 0) return [];
 
   const segments: RawSegment[] = [];
   let index = 0;

@@ -84,7 +84,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
         const roleRes = await fetch("/api/identify-roles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ segments: rawSegments }),
+          body: JSON.stringify({ segments: rawSegments, rawText: parseData.text }),
         });
         const roleData = await roleRes.json();
         if (!roleData.success) {
