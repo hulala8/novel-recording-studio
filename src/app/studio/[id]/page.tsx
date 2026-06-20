@@ -789,7 +789,7 @@ export default function StudioPage() {
       {/* ======== Main workspace ======== */}
       <div className="flex-1 flex overflow-hidden">
         {/* ---- Left: chapters + roles ---- */}
-        <aside className="w-56 border-r border-zinc-800 flex flex-col p-3 gap-2 shrink-0 overflow-y-auto">
+        <aside className="w-56 border-r border-zinc-800 flex flex-col p-3 gap-2 shrink-0 overflow-y-auto pb-14">
           <ChapterList
             chapters={chapters}
             activeChapterId={activeChapterId}
