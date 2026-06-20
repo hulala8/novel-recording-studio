@@ -275,6 +275,72 @@ function segmentHuabenMainText(mainText: string): RawSegment[] {
 }
 
 /**
+ * Generate a 画本 (huaben) formatted text from role-assigned segments.
+ *
+ * This is the reverse of the huaben parsing pipeline: it takes segments
+ * with their assigned roles and produces text with 【角色名】 markers
+ * and a 角色总表 section, compatible with the existing huaben import flow.
+ *
+ * Body-text preservation: apart from adding/replacing structural role
+ * prefixes on dialogue lines, all original content (punctuation, quotes,
+ * whitespace, paragraph boundaries, ordering) is preserved unchanged.
+ */
+export function generateHuabenText(
+  segments: RawSegment[],
+  segmentRoles: { segmentIndex: number; roleName: string }[],
+  title?: string
+): string {
+  // Build role → segmentIndex mapping
+  const roleMap = new Map<number, string>();
+  for (const sr of segmentRoles) {
+    roleMap.set(sr.segmentIndex, sr.roleName.trim());
+  }
+
+  // Collect unique dialogue roles in first-appearance order (exclude 旁白)
+  const dialogueRoles: string[] = [];
+  const seenRoles = new Set<string>();
+  for (const seg of segments) {
+    if (seg.type !== "dialogue") continue;
+    const roleName = roleMap.get(seg.index);
+    if (!roleName || roleName === "旁白") continue;
+    if (!seenRoles.has(roleName)) {
+      seenRoles.add(roleName);
+      dialogueRoles.push(roleName);
+    }
+  }
+
+  // Build 角色总表 section
+  const roleTableLines: string[] = ["角色总表"];
+  for (const name of dialogueRoles) {
+    roleTableLines.push(`【${name}】【未知】【未知】【0】`);
+  }
+
+  // Build 正文 section
+  const bodyLines: string[] = [];
+  bodyLines.push(""); // blank line before 正文
+  bodyLines.push("正文");
+  if (title) {
+    bodyLines.push(title);
+  }
+  bodyLines.push(""); // blank line after 正文/标题
+
+  for (const seg of segments) {
+    const roleName = roleMap.get(seg.index) || "";
+
+    if (seg.type === "narration" || roleName === "旁白" || !roleName) {
+      // Narration / 旁白 / unassigned: output plain text
+      bodyLines.push(seg.text);
+    } else {
+      // Dialogue: strip existing leading 【X】 prefix, then prepend correct one
+      const bodyText = seg.text.replace(/^\s*【[^】]+】\s*/, "");
+      bodyLines.push(`【${roleName}】${bodyText}`);
+    }
+  }
+
+  return roleTableLines.join("\n") + "\n" + bodyLines.join("\n");
+}
+
+/**
  * Segment raw text into structured paragraphs suitable for role identification.
  *
  * Automatically detects 画本 format and uses specialized segmentation.
@@ -457,6 +523,33 @@ export function extractCharacterNames(text: string): string[] {
   return Array.from(names);
 }
 
+// ============================================================
+// DialogueContext — state machine for Rule B alternating speaker
+// ============================================================
+
+interface DialogueContext {
+  lastSpeaker?: string;
+  confirmedSpeakers: string[];
+  alternatingPair?: [string, string];
+  inferredLineCount: number;
+}
+
+/** Narration character threshold for clearing dialogue context */
+const MAX_NARRATION_CHARS_FOR_DIALOGUE_CONTEXT = 80;
+
+/** Check if a segment is a scene/chapter boundary that should reset context */
+function isSceneBoundary(segment: RawSegment): boolean {
+  if (segment.type !== "narration") return false;
+  const t = segment.text;
+  // Chapter heading patterns
+  if (/^第[一二三四五六七八九十百千\d]+[章节回]/.test(t)) return true;
+  if (/^[§]/.test(t)) return true;
+  // Explicit scene separators
+  if (/^[-*=_]{3,}$/.test(t.trim())) return true;
+  if (/^（[^）]*[章节]）/.test(t)) return true;
+  return false;
+}
+
 /**
  * Rule-based role assignment as fallback when AI is unavailable.
  */
@@ -464,8 +557,6 @@ export function ruleBasedRoleAssign(
   segments: RawSegment[],
   characterNames: string[]
 ): { segmentIndex: number; roleName: string }[] {
-  let lastSpeaker = "旁白"; // 旁白
-
   // For pure-dialogue texts (zero narration) with no character names extracted,
   // use alternating speakers instead of lumping everything under 旁白
   const hasNarration = segments.some((s) => s.type === "narration");
@@ -473,13 +564,43 @@ export function ruleBasedRoleAssign(
   const useAlternating = !hasNarration && !hasRealNames;
   let altToggle = 0;
 
+  // DialogueContext state machine for Rule B alternating speaker detection
+  const ctx: DialogueContext = {
+    lastSpeaker: undefined,
+    confirmedSpeakers: [],
+    alternatingPair: undefined,
+    inferredLineCount: 0,
+  };
+  let narrationCharCount = 0;
+
   return segments.map((seg) => {
     // Narration is ALWAYS 旁白
     if (seg.type === "narration") {
+      // Check scene boundaries and long-narration reset
+      if (isSceneBoundary(seg)) {
+        ctx.alternatingPair = undefined;
+        ctx.confirmedSpeakers = [];
+        ctx.lastSpeaker = undefined;
+        ctx.inferredLineCount = 0;
+        narrationCharCount = 0;
+      } else {
+        narrationCharCount += seg.text.length;
+        if (narrationCharCount > MAX_NARRATION_CHARS_FOR_DIALOGUE_CONTEXT) {
+          ctx.alternatingPair = undefined;
+          ctx.confirmedSpeakers = [];
+          ctx.lastSpeaker = undefined;
+          ctx.inferredLineCount = 0;
+          narrationCharCount = 0;
+        }
+      }
       return { segmentIndex: seg.index, roleName: "旁白" };
     }
 
+    // Reset narration accumulator when we hit dialogue
+    narrationCharCount = 0;
+
     let roleName: string | null = null;
+    let isHighConfidence = false;
 
     // 1. Check if this segment's own text contains a speaker attribution
     for (const name of characterNames) {
@@ -492,6 +613,7 @@ export function ruleBasedRoleAssign(
 
       if (patterns.some((p) => p.test(seg.text))) {
         roleName = name;
+        isHighConfidence = true;
         break;
       }
     }
@@ -510,6 +632,7 @@ export function ruleBasedRoleAssign(
           );
           if (bracketNameMatch) {
             roleName = bracketNameMatch[1].trim();
+            isHighConfidence = true;
           }
 
           // 2b. Check for speech-verb patterns
@@ -522,6 +645,119 @@ export function ruleBasedRoleAssign(
                 ).test(prevSeg.text)
               ) {
                 roleName = name;
+                isHighConfidence = true;
+                break;
+              }
+            }
+          }
+
+          // 2c. Rule A: Preceding narration action-subject detection.
+          // If the immediately preceding narration's LAST SENTENCE starts
+          // with NAME + non-speech action phrase, the following dialogue
+          // likely belongs to that NAME. This is auxiliary/weak inference —
+          // only fires when neither bracket (2a) nor speech verb (2b) matched.
+          if (!roleName) {
+            const ACTION_PHRASES = [
+              "推开", "走进", "站起", "转身", "抬头", "低头",
+              "点头", "摇头", "放下", "拿起", "皱眉", "笑了笑", "看向",
+            ];
+            // Sort names by length descending to prevent substring false
+            // matches (e.g., "小李明" matched as "李" instead of "小李明")
+            const namesByLength = [...characterNames]
+              .filter((n) => n !== "旁白")
+              .sort((a, b) => b.length - a.length);
+
+            // Extract the last sentence from the narration.
+            // Split by sentence-ending punctuation and take the last
+            // non-empty sentence. If the text ends with punctuation,
+            // the final sentence is the one before the trailing punct.
+            const sentences = prevSeg.text
+              .split(/[。！？]+/)
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+            const lastSentence =
+              sentences.length > 0
+                ? sentences[sentences.length - 1]
+                : prevSeg.text;
+
+            for (const name of namesByLength) {
+              if (!lastSentence.startsWith(name)) continue;
+
+              const afterName = lastSentence.slice(name.length);
+
+              // Name must be immediately followed by an action phrase
+              const actionMatch = ACTION_PHRASES.find((ap) =>
+                afterName.startsWith(ap)
+              );
+              if (!actionMatch) continue;
+
+              // Observable conflicting evidence: another character name
+              // also appears in the sentence (not as substring of matched name)
+              const otherNames = namesByLength.filter((n) => n !== name);
+              const hasOtherName = otherNames.some(
+                (other) =>
+                  lastSentence.includes(other) &&
+                  !name.includes(other)
+              );
+              if (hasOtherName) continue;
+
+              roleName = name;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. If still no speaker, check the FOLLOWING narration segment
+    // (post-dialogue attribution patterns).
+    // Skip when the preceding segment is also dialogue — in that case,
+    // lastSpeaker persistence/alternation (Step 4) provides a stronger
+    // signal than looking ahead to the next narration, which may
+    // reference a different interaction.
+    if (!roleName && !ctx.alternatingPair) {
+      const thisIdx = segments.indexOf(seg);
+      const prevIsDialogue =
+        thisIdx > 0 && segments[thisIdx - 1].type === "dialogue";
+      if (!prevIsDialogue) {
+        if (thisIdx >= 0 && thisIdx < segments.length - 1) {
+          const nextSeg = segments[thisIdx + 1];
+          if (nextSeg.type === "narration") {
+            for (const name of characterNames) {
+              if (name === "旁白") continue;
+              // Pattern A: "NAME说/道/问..." at start of next narration
+              if (
+                new RegExp(`^${name}\\s*${SPEECH_VERBS}`).test(nextSeg.text)
+              ) {
+                roleName = name;
+                isHighConfidence = true;
+                break;
+              }
+              // Pattern B: "是NAME" at start — explicitly identifies speaker
+              if (
+                new RegExp(`^是${name}[，。\\s]`).test(nextSeg.text)
+              ) {
+                roleName = name;
+                isHighConfidence = true;
+                break;
+              }
+              // Pattern C: "NAME的声音/NAME的语气" — voice attribution
+              if (
+                new RegExp(`^${name}的(?:声音|嗓子|语气|话|语调|口气)`).test(
+                  nextSeg.text
+                )
+              ) {
+                roleName = name;
+                isHighConfidence = true;
+                break;
+              }
+              // Pattern D: NAME at the very start of next narration (no speech verb needed)
+              // Catches cases like "走！"陈九宸咬牙 where 咬牙 is not a speech verb
+              // Uses startsWith instead of regex because the character after the name
+              // could be ANYTHING (action verb, body part, emotion, etc.)
+              if (nextSeg.text.startsWith(name)) {
+                roleName = name;
+                isHighConfidence = true;
                 break;
               }
             }
@@ -530,55 +766,18 @@ export function ruleBasedRoleAssign(
       }
     }
 
-    // 3. If still no speaker, check the FOLLOWING narration segment
-    //    (post-dialogue attribution patterns)
-    if (!roleName) {
-      const thisIdx = segments.indexOf(seg);
-      if (thisIdx >= 0 && thisIdx < segments.length - 1) {
-        const nextSeg = segments[thisIdx + 1];
-        if (nextSeg.type === "narration") {
-          for (const name of characterNames) {
-            if (name === "旁白") continue;
-            // Pattern A: "NAME说/道/问..." at start of next narration
-            if (
-              new RegExp(`^${name}\\s*${SPEECH_VERBS}`).test(nextSeg.text)
-            ) {
-              roleName = name;
-              break;
-            }
-            // Pattern B: "是NAME" at start — explicitly identifies speaker
-            if (
-              new RegExp(`^是${name}[，。\\s]`).test(nextSeg.text)
-            ) {
-              roleName = name;
-              break;
-            }
-            // Pattern C: "NAME的声音/NAME的语气" — voice attribution
-            if (
-              new RegExp(`^${name}的(?:声音|嗓子|语气|话|语调|口气)`).test(
-                nextSeg.text
-              )
-            ) {
-              roleName = name;
-              break;
-            }
-            // Pattern D: NAME at the very start of next narration (no speech verb needed)
-            // Catches cases like "走！"陈九宸咬牙 where 咬牙 is not a speech verb
-            // Uses startsWith instead of regex because the character after the name
-            // could be ANYTHING (action verb, body part, emotion, etc.)
-            if (nextSeg.text.startsWith(name)) {
-              roleName = name;
-              break;
-            }
-          }
-        }
+    // 4. DialogueContext-based fallback for unattributed dialogue
+    if (!roleName && !useAlternating) {
+      if (ctx.alternatingPair && ctx.lastSpeaker) {
+        // Alternating pair established — alternate A→B→A→B
+        const [a, b] = ctx.alternatingPair;
+        roleName = ctx.lastSpeaker === a ? b : a;
+        ctx.inferredLineCount++;
+      } else if (ctx.lastSpeaker && ctx.lastSpeaker !== "旁白") {
+        // One confirmed speaker — use lastSpeaker persistence
+        roleName = ctx.lastSpeaker;
+        ctx.inferredLineCount++;
       }
-    }
-
-    // 4. Fall back to last known speaker for continued dialogue
-    // Skip in alternating mode — we want deliberate alternation, not chaining
-    if (!roleName && !useAlternating && lastSpeaker !== "旁白") {
-      roleName = lastSpeaker;
     }
 
     // 5. Final fallback
@@ -593,7 +792,43 @@ export function ruleBasedRoleAssign(
 
     roleName = normalizeRoleName(roleName);
 
-    lastSpeaker = roleName;
+    // Update DialogueContext after assignment
+    if (isHighConfidence && roleName !== "旁白") {
+      // High-confidence attribution (Steps 1, 2a, 2b, 3)
+      const prevSpeaker = ctx.lastSpeaker;
+
+      if (!ctx.confirmedSpeakers.includes(roleName)) {
+        ctx.confirmedSpeakers.push(roleName);
+      }
+
+      // Establish or update alternating pair.
+      // Check third-speaker discard BEFORE new-pair establishment.
+      if (
+        ctx.alternatingPair &&
+        !ctx.alternatingPair.includes(roleName)
+      ) {
+        // Third speaker appears → discard old pair, reset confirmed speakers
+        ctx.alternatingPair = undefined;
+        ctx.confirmedSpeakers = [roleName];
+      } else if (
+        prevSpeaker &&
+        prevSpeaker !== roleName &&
+        prevSpeaker !== "旁白" &&
+        ctx.confirmedSpeakers.includes(prevSpeaker)
+      ) {
+        // Two different confirmed speakers → establish alternating pair
+        ctx.alternatingPair = [prevSpeaker, roleName];
+      }
+
+      ctx.lastSpeaker = roleName;
+      ctx.inferredLineCount = 0;
+    } else if (roleName !== "旁白") {
+      // Non-high-confidence or inferred attribution
+      // Do NOT update confirmedSpeakers or alternatingPair
+      ctx.lastSpeaker = roleName;
+    } else {
+      // 旁白 — don't update speaker context
+    }
 
     return { segmentIndex: seg.index, roleName };
   });

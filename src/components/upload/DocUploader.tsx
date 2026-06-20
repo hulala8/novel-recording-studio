@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useProjects } from "@/hooks/useIndexedDB";
 import * as db from "@/lib/db";
 import { normalizeRoleName } from "@/lib/role-name-utils";
+import { generateHuabenText } from "@/lib/text-parser";
 import type { Segment, RawSegment, Role, Chapter } from "@/lib/types";
 
 interface DocUploaderProps {
@@ -27,6 +28,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   const [projectName, setProjectName] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   const fileRef = useRef<File | null>(null);
+  const [rawSegments, setRawSegments] = useState<RawSegment[] | null>(null);
 
   // Review state
   const [selectedSegments, setSelectedSegments] = useState<Set<string>>(new Set());
@@ -79,6 +81,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
           return;
         }
         const rawSegments: RawSegment[] = segData.segments;
+        setRawSegments(rawSegments);
 
         setStage("identifying");
         const roleRes = await fetch("/api/identify-roles", {
@@ -243,6 +246,60 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
           : s
       )
     );
+  }
+
+  function handleExportHuaben() {
+    if (!rawSegments) return;
+
+    // Reconstruct segmentRoles from user-edited segments
+    const segmentRoles = segments.map((s) => ({
+      segmentIndex: s.index,
+      roleName: s.roleName,
+    }));
+
+    // Pre-export validation: check for unresolved dialogue
+    const unresolvedCount = segments.filter(
+      (s) =>
+        dialogueLike(s.text) &&
+        (!s.roleName || s.roleName.trim() === "" || s.roleName === "旁白")
+    ).length;
+
+    if (unresolvedCount > 0) {
+      alert(
+        `还有 ${unresolvedCount} 段对白未确认，暂时不能导出画本。`
+      );
+      return;
+    }
+
+    // Validate segmentRoles
+    for (const sr of segmentRoles) {
+      if (!sr.roleName || sr.roleName.trim() === "") {
+        alert("存在未分配角色的对白段落，无法导出。");
+        return;
+      }
+      if (typeof sr.segmentIndex !== "number" || sr.segmentIndex < 0) {
+        alert("段落索引异常，无法导出。");
+        return;
+      }
+    }
+
+    const huabenText = generateHuabenText(
+      rawSegments,
+      segmentRoles,
+      chapterTitle || undefined
+    );
+
+    const blob = new Blob([huabenText], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${projectName || "novel"}_huaben.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   async function handleConfirm() {
@@ -544,6 +601,13 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
             disabled={unlabeledSegments.length === 0}
           >
             全选未标注段落
+          </button>
+          <button
+            onClick={handleExportHuaben}
+            disabled={!rawSegments}
+            className="px-6 py-2 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-md font-medium text-sm"
+          >
+            导出画本格式
           </button>
           <button
             onClick={handleConfirm}
