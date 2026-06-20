@@ -27,11 +27,14 @@ export default function QuickFixPanel({
   const [newRoleName, setNewRoleName] = useState("");
   const [creating, setCreating] = useState(false);
   // Track which segments the user has explicitly confirmed (even as 旁白).
-  // Initialize from sessionStorage so segments reviewed in DocUploader carry over.
+  // Load from sessionStorage (carried over from DocUploader review) then
+  // immediately clear it so it doesn't persist across page reloads.
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(() => {
     try {
-      const stored = sessionStorage.getItem(`reviewed-${projectId}`);
+      const key = `reviewed-${projectId}`;
+      const stored = sessionStorage.getItem(key);
       if (stored) {
+        sessionStorage.removeItem(key); // one-shot: clear after reading
         const ids: string[] = JSON.parse(stored);
         return new Set(ids);
       }
