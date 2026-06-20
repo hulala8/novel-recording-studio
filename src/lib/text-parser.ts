@@ -426,7 +426,7 @@ function isValidExtractedName(name: string): boolean {
   if (
     name.length < 1 ||
     name.length > 4 ||
-    /^(?:的|了|在|是|和|就|也|都|还|要|会|能|可以|这个|那个|什么|怎么|哪个)$/.test(name) ||
+    /^(?:的|了|在|是|和|就|也|都|还|要|会|能|可以|这个|那个|什么|怎么|哪个|正)$/.test(name) ||
     /^(?:一下|起来|出来|过来|过去|下来)$/.test(name) ||
     /^(?:忽然|突然|然后|于是|接着|便|又|再|才|就|已经|曾经|正在)$/.test(name) ||
     /^(?:轻轻|淡淡|微微|冷冷|慢慢|静静|缓缓|悠悠|悄悄|默默|狠狠|重重)$/.test(name) ||
@@ -444,7 +444,15 @@ function isValidExtractedName(name: string): boolean {
     /[对跟向和给朝冲替为让叫把被]/.test(name) ||
     // Speech verbs inside the name (e.g., "补了一句" from "补了一句说")
     /(?:问道|说道|答道|笑道|怒道|叹道|喊道|叫道|嘀咕|嘟囔|呢喃|惊叹|开口|回话|插嘴|补充|反驳|质疑|冷笑|怒喝|轻叹|告诉|吩咐|嘱咐|说|道|问|答|喊|叫|嚷|骂|吼)/.test(name) ||
-    /[的得]/.test(name)
+    /[的得]/.test(name) ||
+    // Sound nouns: words ending in 声 are almost never character names
+    /声$/.test(name) ||
+    // Quantifiers for people: not character names
+    /^(?:两人|三人|四人|几人|数人|多人|众人)$/.test(name) ||
+    // Sound quantifiers and interjections
+    /^(?:一声|两声|三声|几声)$/.test(name) ||
+    // Speech fragments starting with 话
+    /^(?:话没|话说|话还|话已|话都|话也|话刚|话才|话一)$/.test(name)
   ) {
     return false;
   }

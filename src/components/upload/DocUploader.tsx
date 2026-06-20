@@ -39,6 +39,9 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleColor, setNewRoleColor] = useState(PRESET_COLORS[0]);
   const [lastCheckedIndex, setLastCheckedIndex] = useState<number | null>(null);
+  const [reviewedSegmentIds, setReviewedSegmentIds] = useState<Set<string>>(
+    new Set()
+  );
 
   const { createProject } = useProjects();
 
@@ -167,6 +170,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
         s.id === segmentId ? { ...s, roleName: newRoleName, roleId: newRoleId } : s
       )
     );
+    setReviewedSegmentIds((prev) => new Set(prev).add(segmentId));
   }
 
   // -------- Batch operations --------
@@ -197,6 +201,9 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
       prev.map((s) =>
         selectedSegments.has(s.id) ? { ...s, roleId, roleName } : s
       )
+    );
+    setReviewedSegmentIds(
+      (prev) => new Set([...prev, ...selectedSegments])
     );
     setSelectedSegments(new Set());
   }
@@ -315,7 +322,10 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   // Match Chinese curly quotes, corner brackets, AND ASCII straight double quotes
   const dialogueLike = (text: string) => /[""「」『』"“”]/.test(text);
   const unlabeledSegments = segments.filter(
-    (s) => dialogueLike(s.text) && s.roleName === "旁白"
+    (s) =>
+      dialogueLike(s.text) &&
+      s.roleName === "旁白" &&
+      !reviewedSegmentIds.has(s.id)
   );
   const narratorCount = segments.filter((s) => s.roleName === "旁白").length;
   const dialogueTotal = segments.filter((s) => dialogueLike(s.text)).length;

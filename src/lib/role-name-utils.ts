@@ -64,6 +64,24 @@ const BLOCKED_ROLE_NAMES = new Set([
   "想",
   "笑",
   "哭",
+  "正",
+  // Quantifier + person (not names)
+  "两人",
+  "三人",
+  "四人",
+  "几人",
+  "数人",
+  "多人",
+  // Sound nouns
+  "一声女",
+  "脚步声",
+  "说话声",
+  "敲门声",
+  // Speech fragments
+  "话没",
+  // Common noun phrases that get falsely extracted
+  "造引水管",
+  "远没人知",
 ]);
 
 export function isLikelyRealRoleName(name: string): boolean {
@@ -90,6 +108,16 @@ export function isLikelyRealRoleName(name: string): boolean {
   if (/(?:才知|才知道|都不知|不知道|不知|搭腔|掩嘴|撒嘴|撇嘴|嘴)$/.test(trimmed)) {
     return false;
   }
+  // Sound-noun suffix: X声 is almost never a character name
+  if (/声$/.test(trimmed)) return false;
+  // Quantifier prefix: 一声/两声 etc. are sound/interjection counters
+  if (/^[一两三四五六七八九十百千万几]声/.test(trimmed)) return false;
+  // Speech fragment prefix: 话X where X is a modifier/negation
+  if (/^话(?:没|还|也|已|都|刚|才|一|不|可)/.test(trimmed)) return false;
+  // Common single-char adverbs that aren't names
+  if (/^(?:正|就|才|又|再|便|只|却|可|竟)$/.test(trimmed)) return false;
+  // Verb-object/noun phrases that look like names but aren't
+  if (/[管线器具料石铁铜金银布纸水火土]$/.test(trimmed)) return false;
   return true;
 }
 
