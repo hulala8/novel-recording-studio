@@ -328,7 +328,7 @@ export default function DocUploader({ onProjectCreated }: DocUploaderProps) {
   // -------- Computed stats --------
   // Type metadata is not stored after review conversion, so use quotes as a heuristic.
   // Match Chinese curly quotes, corner brackets, AND ASCII straight double quotes
-  const dialogueLike = (text: string) => /[""「」『』"“”]/.test(text);
+  const dialogueLike = (text: string) => /[""「」『』"“”【]/.test(text);
   const unlabeledSegments = segments.filter(
     (s) =>
       dialogueLike(s.text) &&

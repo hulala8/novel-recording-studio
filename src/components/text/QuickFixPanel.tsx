@@ -52,8 +52,9 @@ export default function QuickFixPanel({
       // (The segment text starting with quotes IS dialogue,
       //  and text without quotes assigned to 旁白 is actual narration and should be skipped)
 
-      // Quick heuristic: if the text starts with a quote character, it's dialogue
-      const looksLikeDialogue = /^[""“‘「『]/.test(seg.text.trim());
+      // Quick heuristic: if the text starts with a quote character or 【,
+      // it's likely dialogue (【 is the huaben/画本 role marker)
+      const looksLikeDialogue = /^[""“‘「『【]/.test(seg.text.trim());
       if (!looksLikeDialogue) return acc;
 
       acc.push({
